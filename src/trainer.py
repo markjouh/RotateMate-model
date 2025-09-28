@@ -1,3 +1,7 @@
+"""
+Trains MobileViT V2 model on rotated images using mixed precision and exports to CoreML/ONNX.
+"""
+
 import json
 import logging
 from pathlib import Path

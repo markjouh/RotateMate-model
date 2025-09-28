@@ -1,3 +1,7 @@
+"""
+Downloads and extracts COCO dataset with progress bars and resume support.
+"""
+
 import os
 import zipfile
 import logging

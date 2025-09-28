@@ -1,3 +1,8 @@
+"""
+Processes images into rotated shards: applies 4 rotations (0°, 90°, 180°, 270°)
+and saves as .pt files with letterboxing to 256x256.
+"""
+
 import logging
 from pathlib import Path
 from PIL import Image, ImageOps

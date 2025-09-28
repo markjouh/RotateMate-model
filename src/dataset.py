@@ -1,3 +1,7 @@
+"""
+Efficient PyTorch dataset for loading sharded .pt files with memory caching.
+"""
+
 import bisect
 import logging
 from pathlib import Path
