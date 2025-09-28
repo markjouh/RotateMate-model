@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Data
+data/
+*.zip
+*.pt
+*.pth
+*.mlmodel
+*.onnx
+
+# Training
+checkpoints/
+logs/
+exports/
+runs/
+wandb/
+
+# System
+.DS_Store
+.claude/
+*.log
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb

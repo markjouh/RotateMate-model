@@ -1,0 +1,10 @@
+torch>=2.0.0
+torchvision>=0.15.0
+numpy>=1.24.0
+pillow>=10.0.0
+pyyaml>=6.0
+tqdm>=4.65.0
+transformers>=4.30.0
+accelerate>=0.20.0
+coremltools>=7.0
+onnx>=1.14.0
