@@ -26,10 +26,10 @@ python run.py --steps export      # Export to CoreML/ONNX
 
 ## Configuration
 
-The `config.yaml` is pre-optimized for GH200:
-- Batch size: 1024 (96GB HBM3)
-- Workers: 32 (72 ARM cores available)
-- Mixed precision FP16 enabled
+The `config.yaml` is optimized for GH200:
+- Batch size: 2048 (96GB HBM3)
+- Workers: 64 data loading, 72 processing
+- Mixed precision FP16 + TF32 enabled
 
 ## Output
 

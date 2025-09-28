@@ -35,6 +35,10 @@ class Trainer:
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA not available")
 
+        # GH200: Enable TF32 for Hopper
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+
         self.checkpoint_dir = Path(config['output_dir'])
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
@@ -47,6 +51,7 @@ class Trainer:
         self.scaler = None
         self.best_metric = 0.0
         self.patience_counter = 0
+        self.gradient_accumulation_steps = config.get('gradient_accumulation_steps', 1)
 
         self.metrics = {
             'train_loss': [],
@@ -124,22 +129,24 @@ class Trainer:
         num_batches = 0
 
         criterion = nn.CrossEntropyLoss()
+        accumulation_steps = self.gradient_accumulation_steps
 
-        for images, labels in tqdm(dataloader, desc="Training", leave=False):
+        for batch_idx, (images, labels) in enumerate(tqdm(dataloader, desc="Training", leave=False)):
             images = images.to(self.device)
             labels = labels.to(self.device)
 
-            self.optimizer.zero_grad(set_to_none=True)
-
             with autocast(device_type="cuda", dtype=torch.float16):
                 logits = self.model(images)
-                loss = criterion(logits, labels)
+                loss = criterion(logits, labels) / accumulation_steps
 
             self.scaler.scale(loss).backward()
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
 
-            total_loss += loss.item()
+            if (batch_idx + 1) % accumulation_steps == 0 or (batch_idx + 1) == len(dataloader):
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+                self.optimizer.zero_grad(set_to_none=True)
+
+            total_loss += loss.item() * accumulation_steps
             num_batches += 1
 
         return total_loss / max(1, num_batches)

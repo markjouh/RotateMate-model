@@ -11,7 +11,7 @@ data:
   processed_dir: "data/shards"
 
   samples_per_shard: 10000
-  processing_workers: 32
+  processing_workers: 72  # GH200: 72 Grace cores
   image_size: 256
   rotations: [0, 90, 180, 270]
 
@@ -26,14 +26,16 @@ training:
   output_dir: "checkpoints"
   logs_dir: "logs"
 
-  batch_size: 1024
+  batch_size: 2048  # GH200: 96GB HBM3
   epochs: 10
-  learning_rate: 1.0e-3
+  learning_rate: 2.0e-3  # Linear scaling
   weight_decay: 1.0e-4
+  gradient_accumulation_steps: 1  # Optional
 
   patience: 3
-  num_workers: 32
+  num_workers: 64  # GH200: High parallelism
   pin_memory: true
+  prefetch_factor: 4  # GH200: Leverage bandwidth
   keep_n_checkpoints: 3
 
 export:

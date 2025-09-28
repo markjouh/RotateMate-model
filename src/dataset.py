@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class ShardedDataset(Dataset):
-    def __init__(self, shard_dirs, cache_size=3, transforms=None):
+    def __init__(self, shard_dirs, cache_size=10, transforms=None):  # GH200: More cache
         if isinstance(shard_dirs, (str, Path)):
             shard_dirs = [shard_dirs]
 
@@ -96,7 +96,8 @@ def create_dataloaders(
     batch_size=32,
     num_workers=4,
     pin_memory=True,
-    transforms=None
+    transforms=None,
+    prefetch_factor=2  # GH200: Prefetch optimization
 ):
     dataloaders = {}
 
@@ -107,7 +108,8 @@ def create_dataloaders(
         shuffle=True,
         num_workers=num_workers,
         pin_memory=pin_memory,
-        persistent_workers=num_workers > 0
+        persistent_workers=num_workers > 0,
+        prefetch_factor=prefetch_factor if num_workers > 0 else None
     )
 
     val_dataset = ShardedDataset(val_dir, transforms=transforms)
@@ -117,7 +119,8 @@ def create_dataloaders(
         shuffle=False,
         num_workers=num_workers,
         pin_memory=pin_memory,
-        persistent_workers=num_workers > 0
+        persistent_workers=num_workers > 0,
+        prefetch_factor=prefetch_factor if num_workers > 0 else None
     )
 
     if test_dir and Path(test_dir).exists():
@@ -128,7 +131,8 @@ def create_dataloaders(
             shuffle=False,
             num_workers=num_workers,
             pin_memory=pin_memory,
-            persistent_workers=num_workers > 0
+            persistent_workers=num_workers > 0,
+            prefetch_factor=prefetch_factor if num_workers > 0 else None
         )
 
     logger.info(f"Created dataloaders: {list(dataloaders.keys())}")

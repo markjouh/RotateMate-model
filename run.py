@@ -105,7 +105,8 @@ def step_train(config, shard_dirs):
         test_dir=test_dir,
         batch_size=config['training']['batch_size'],
         num_workers=config['training']['num_workers'],
-        pin_memory=config['training']['pin_memory']
+        pin_memory=config['training']['pin_memory'],
+        prefetch_factor=config['training'].get('prefetch_factor', 2)
     )
 
     trainer = Trainer(config['training'])
