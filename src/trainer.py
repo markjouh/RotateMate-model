@@ -11,19 +11,6 @@ import warnings
 logger = logging.getLogger(__name__)
 
 
-def get_device():
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-        logger.info(f"Using CUDA: {torch.cuda.get_device_name(0)}")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
-        logger.info("Using MPS")
-    else:
-        device = torch.device("cpu")
-        logger.info("Using CPU")
-    return device
-
-
 class ModelWrapper(nn.Module):
     def __init__(self, model_core, mean, std):
         super().__init__()
@@ -37,10 +24,10 @@ class ModelWrapper(nn.Module):
 
 
 class Trainer:
-    def __init__(self, config, device=None):
+    def __init__(self, config):
         self.config = config
-        self.device = device or get_device()
-        self.use_amp = config.get('mixed_precision', True) and self.device.type in ["cuda", "mps"]
+        self.device = torch.device("cuda")
+        self.use_amp = config.get('mixed_precision', True)
 
         self.checkpoint_dir = Path(config['output_dir'])
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -61,6 +48,8 @@ class Trainer:
             'learning_rates': []
         }
 
+        logger.info(f"Using GPU: {torch.cuda.get_device_name(0)}")
+
     def setup_model(self, model_config):
         from transformers import AutoImageProcessor, MobileViTV2ForImageClassification
         warnings.filterwarnings("ignore", message=".*slow image processor.*")
@@ -70,7 +59,7 @@ class Trainer:
 
         logger.info(f"Loading {model_id}")
 
-        _ = AutoImageProcessor.from_pretrained(model_id)  # Compatibility check
+        _ = AutoImageProcessor.from_pretrained(model_id)
 
         model_core = MobileViTV2ForImageClassification.from_pretrained(
             model_id,
@@ -97,32 +86,21 @@ class Trainer:
         lr = self.config['learning_rate']
         weight_decay = self.config.get('weight_decay', 1e-4)
 
-        if self.config['optimizer'].lower() == 'adamw':
-            self.optimizer = torch.optim.AdamW(
-                self.model.parameters(),
-                lr=lr,
-                weight_decay=weight_decay
-            )
-        else:
-            self.optimizer = torch.optim.SGD(
-                self.model.parameters(),
-                lr=lr,
-                momentum=0.9,
-                weight_decay=weight_decay
-            )
+        self.optimizer = torch.optim.AdamW(
+            self.model.parameters(),
+            lr=lr,
+            weight_decay=weight_decay
+        )
 
         epochs = self.config['epochs']
-        if self.config['scheduler'].lower() == 'cosine':
-            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                self.optimizer,
-                T_max=epochs,
-                eta_min=1e-6
-            )
-        else:
-            self.scheduler = None
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.optimizer,
+            T_max=epochs,
+            eta_min=1e-6
+        )
 
         if self.use_amp:
-            self.scaler = GradScaler(self.device.type)
+            self.scaler = GradScaler("cuda")
 
         return self.optimizer, self.scheduler
 
@@ -158,8 +136,7 @@ class Trainer:
             self.optimizer.zero_grad(set_to_none=True)
 
             if self.use_amp:
-                with autocast(device_type=self.device.type,
-                            dtype=torch.float16 if self.device.type == "cuda" else torch.bfloat16):
+                with autocast(device_type="cuda", dtype=torch.float16):
                     logits = self.model(images)
                     loss = criterion(logits, labels)
 
@@ -182,7 +159,7 @@ class Trainer:
             'epoch': epoch,
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
-            'scheduler_state_dict': self.scheduler.state_dict() if self.scheduler else None,
+            'scheduler_state_dict': self.scheduler.state_dict(),
             'val_acc': val_acc,
             'config': self.config,
             'metrics': self.metrics

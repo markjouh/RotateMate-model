@@ -1,67 +1,52 @@
-# Configuration for RotateMate Model Training
-# All paths are relative to project root unless specified as absolute
+# Configuration for GH200 Training
 
-# Data Configuration
 data:
-  # URLs for downloading COCO dataset
   urls:
     - "http://images.cocodataset.org/zips/train2017.zip"
     - "http://images.cocodataset.org/zips/val2017.zip"
     - "http://images.cocodataset.org/zips/test2017.zip"
 
-  # Directory structure
-  raw_dir: "data/raw"           # Downloaded zips
-  extracted_dir: "data/coco"    # Extracted images
-  processed_dir: "data/shards"  # Processed .pt shards
+  raw_dir: "data/raw"
+  extracted_dir: "data/coco"
+  processed_dir: "data/shards"
 
-  # Processing parameters
-  samples_per_shard: 5000       # Images per .pt file
-  processing_workers: 8         # Parallel workers for processing
-  image_size: 256               # Target image size
-  rotations: [0, 90, 180, 270]  # Rotation angles
+  samples_per_shard: 10000
+  processing_workers: 32  # GH200 has 72 ARM cores
+  image_size: 256
+  rotations: [0, 90, 180, 270]
 
-# Model Configuration
 model:
   name: "apple/mobilevitv2-1.0-imagenet1k-256"
   num_classes: 4
-  # ImageNet normalization values
   normalize:
     mean: [0.485, 0.456, 0.406]
     std: [0.229, 0.224, 0.225]
 
-# Training Configuration
 training:
-  # Directories
   output_dir: "checkpoints"
   logs_dir: "logs"
 
-  # Hyperparameters
-  batch_size: 256           # Adjust based on GPU memory
+  batch_size: 1024  # GH200 has 96GB HBM3
   epochs: 10
   learning_rate: 1.0e-3
   weight_decay: 1.0e-4
 
-  # Optimization
   optimizer: "adamw"
   scheduler: "cosine"
   warmup_epochs: 1
 
-  # Early stopping
   patience: 3
   min_delta: 0.001
 
-  # Performance
-  num_workers: 8            # DataLoader workers
-  pin_memory: true          # For CUDA
-  mixed_precision: true     # FP16/BF16 training
-  gradient_accumulation: 1  # For large batch simulation
-  compile_model: true       # torch.compile for speed
+  num_workers: 32
+  pin_memory: true
+  mixed_precision: true
+  gradient_accumulation: 1
+  compile_model: true
 
-  # Checkpointing
   save_every_n_epochs: 1
   keep_n_checkpoints: 3
 
-# Export Configuration
 export:
   coreml:
     enabled: true
@@ -72,31 +57,7 @@ export:
     enabled: false
     opset_version: 17
 
-  tensorrt:
-    enabled: false
-    fp16: true
-
-# System Configuration
-system:
-  # Auto-detect by default, can override
-  device: "auto"  # auto, cuda, mps, cpu
-
-  # CUDA specific
-  cuda:
-    cudnn_benchmark: true
-    deterministic: false
-
-  # Distributed training (for multi-GPU)
-  distributed:
-    enabled: false
-    backend: "nccl"  # nccl for NVIDIA, gloo for CPU
-
-# Logging
 logging:
   level: "INFO"
   console: true
   file: true
-  tensorboard: true
-  wandb:
-    enabled: false
-    project: "rotatemate"
