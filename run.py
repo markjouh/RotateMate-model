@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+"""
+Main orchestrator for training pipeline.
+"""
 
 import sys
 import argparse
@@ -48,7 +51,7 @@ def step_download(config):
     raw_dir = Path(config['data']['raw_dir'])
     extract_dir = Path(config['data']['extracted_dir'])
 
-    extracted = download_and_extract(urls, raw_dir, extract_dir, remove_zips=False)
+    download_and_extract(urls, raw_dir, extract_dir)
     splits = verify_dataset(extract_dir)
     logger.info(f"Found {len(splits)} dataset splits")
     return splits
@@ -65,14 +68,12 @@ def step_process(config, splits):
         logger.info(f"Processing {split_name}...")
         output_dir = processed_dir / split_name
 
-        if output_dir.exists():
-            shard_files = list(output_dir.glob("*.pt"))
-            if shard_files:
-                logger.info(f"{split_name} already processed ({len(shard_files)} shards)")
-                shard_dirs[split_name] = output_dir
-                continue
+        if output_dir.exists() and list(output_dir.glob("*.pt")):
+            logger.info(f"{split_name} already processed")
+            shard_dirs[split_name] = output_dir
+            continue
 
-        stats = create_shards(
+        create_shards(
             input_dirs=[split_path],
             output_dir=output_dir,
             samples_per_shard=config['data']['samples_per_shard'],
@@ -81,8 +82,7 @@ def step_process(config, splits):
             target_size=config['data']['image_size']
         )
 
-        verification = verify_shards(output_dir)
-        logger.info(f"Verified {split_name}: {verification['total_samples']} samples")
+        verify_shards(output_dir)
         shard_dirs[split_name] = output_dir
 
     return shard_dirs
@@ -138,12 +138,10 @@ def main():
     parser.add_argument('--steps', nargs='+',
                        choices=['download', 'process', 'train', 'export', 'all'],
                        default=['all'])
-    parser.add_argument('--log-level', default='INFO',
-                       choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'])
     args = parser.parse_args()
 
     config = load_config(args.config)
-    logger = setup_logging(config.get('logging', {}).get('logs_dir', 'logs'), args.log_level)
+    logger = setup_logging(config['logging']['logs_dir'])
 
     if 'all' in args.steps:
         steps_to_run = ['download', 'process', 'train', 'export']
@@ -153,54 +151,44 @@ def main():
     start_time = time.time()
     results = {}
 
-    # Download
-    if 'download' in steps_to_run:
-        splits = step_download(config)
-        results['splits'] = splits
-    else:
-        extract_dir = Path(config['data']['extracted_dir'])
-        splits = verify_dataset(extract_dir)
-        results['splits'] = splits
+    try:
+        # Download
+        if 'download' in steps_to_run:
+            results['splits'] = step_download(config)
+        else:
+            results['splits'] = verify_dataset(Path(config['data']['extracted_dir']))
 
-    # Process
-    if 'process' in steps_to_run:
-        shard_dirs = step_process(config, results['splits'])
-        results['shard_dirs'] = shard_dirs
-    else:
-        processed_dir = Path(config['data']['processed_dir'])
-        shard_dirs = {}
-        for split_name in ['train2017', 'val2017', 'test2017']:
-            shard_path = processed_dir / split_name
-            if shard_path.exists():
-                shard_dirs[split_name] = shard_path
-        results['shard_dirs'] = shard_dirs
+        # Process
+        if 'process' in steps_to_run:
+            results['shard_dirs'] = step_process(config, results['splits'])
+        else:
+            processed_dir = Path(config['data']['processed_dir'])
+            shard_dirs = {}
+            for split in ['train2017', 'val2017', 'test2017']:
+                path = processed_dir / split
+                if path.exists():
+                    shard_dirs[split] = path
+            results['shard_dirs'] = shard_dirs
 
-    # Train
-    if 'train' in steps_to_run:
-        best_model = step_train(config, results['shard_dirs'])
-        results['best_model'] = best_model
+        # Train
+        if 'train' in steps_to_run:
+            results['best_model'] = step_train(config, results['shard_dirs'])
 
-    # Export
-    if 'export' in steps_to_run:
-        if 'best_model' not in results:
-            checkpoint_dir = Path(config['training']['output_dir'])
-            best_model = checkpoint_dir / "best_model.pth"
-            if not best_model.exists():
-                raise FileNotFoundError("No trained model found")
-            results['best_model'] = best_model
+        # Export
+        if 'export' in steps_to_run:
+            if 'best_model' not in results:
+                best_model = Path(config['training']['output_dir']) / "best_model.pth"
+                if not best_model.exists():
+                    raise FileNotFoundError("No model to export")
+                results['best_model'] = best_model
+            results['exported'] = step_export(config, results['best_model'])
 
-        exported = step_export(config, results['best_model'])
-        results['exported'] = exported
+    except Exception as e:
+        logger.error(f"Pipeline failed: {e}")
+        raise
 
-    elapsed_time = time.time() - start_time
-    logger.info(f"Pipeline complete in {elapsed_time/60:.2f} minutes")
-
-    if 'best_model' in results:
-        logger.info(f"Model: {results['best_model']}")
-
-    if 'exported' in results and results['exported']:
-        for fmt, path in results['exported'].items():
-            logger.info(f"  {fmt}: {path}")
+    elapsed = time.time() - start_time
+    logger.info(f"Complete in {elapsed/60:.1f} minutes")
 
 
 if __name__ == "__main__":

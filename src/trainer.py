@@ -31,7 +31,9 @@ class Trainer:
     def __init__(self, config):
         self.config = config
         self.device = torch.device("cuda")
-        self.use_amp = config.get('mixed_precision', True)
+
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA not available")
 
         self.checkpoint_dir = Path(config['output_dir'])
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -55,15 +57,13 @@ class Trainer:
         logger.info(f"Using GPU: {torch.cuda.get_device_name(0)}")
 
     def setup_model(self, model_config):
-        from transformers import AutoImageProcessor, MobileViTV2ForImageClassification
+        from transformers import MobileViTV2ForImageClassification
         warnings.filterwarnings("ignore", message=".*slow image processor.*")
 
         model_id = model_config['name']
         num_classes = model_config['num_classes']
 
         logger.info(f"Loading {model_id}")
-
-        _ = AutoImageProcessor.from_pretrained(model_id)
 
         model_core = MobileViTV2ForImageClassification.from_pretrained(
             model_id,
@@ -76,13 +76,6 @@ class Trainer:
         mean = model_config['normalize']['mean']
         std = model_config['normalize']['std']
         self.model = ModelWrapper(model_core, mean, std).to(self.device)
-
-        if self.config.get('compile_model', True):
-            try:
-                self.model = torch.compile(self.model, mode="reduce-overhead")
-                logger.info("Model compiled")
-            except Exception as e:
-                logger.warning(f"Compilation skipped: {e}")
 
         return self.model
 
@@ -103,8 +96,7 @@ class Trainer:
             eta_min=1e-6
         )
 
-        if self.use_amp:
-            self.scaler = GradScaler("cuda")
+        self.scaler = GradScaler("cuda")
 
         return self.optimizer, self.scheduler
 
@@ -139,19 +131,13 @@ class Trainer:
 
             self.optimizer.zero_grad(set_to_none=True)
 
-            if self.use_amp:
-                with autocast(device_type="cuda", dtype=torch.float16):
-                    logits = self.model(images)
-                    loss = criterion(logits, labels)
-
-                self.scaler.scale(loss).backward()
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-            else:
+            with autocast(device_type="cuda", dtype=torch.float16):
                 logits = self.model(images)
                 loss = criterion(logits, labels)
-                loss.backward()
-                self.optimizer.step()
+
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
 
             total_loss += loss.item()
             num_batches += 1
@@ -220,8 +206,7 @@ class Trainer:
                 logger.info(f"Early stopping at epoch {epoch}")
                 break
 
-            if self.scheduler:
-                self.scheduler.step()
+            self.scheduler.step()
 
         metrics_path = self.log_dir / "training_metrics.json"
         with open(metrics_path, 'w') as f:

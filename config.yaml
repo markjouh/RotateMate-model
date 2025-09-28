@@ -11,7 +11,7 @@ data:
   processed_dir: "data/shards"
 
   samples_per_shard: 10000
-  processing_workers: 32  # GH200 has 72 ARM cores
+  processing_workers: 32
   image_size: 256
   rotations: [0, 90, 180, 270]
 
@@ -26,25 +26,14 @@ training:
   output_dir: "checkpoints"
   logs_dir: "logs"
 
-  batch_size: 1024  # GH200 has 96GB HBM3
+  batch_size: 1024
   epochs: 10
   learning_rate: 1.0e-3
   weight_decay: 1.0e-4
 
-  optimizer: "adamw"
-  scheduler: "cosine"
-  warmup_epochs: 1
-
   patience: 3
-  min_delta: 0.001
-
   num_workers: 32
   pin_memory: true
-  mixed_precision: true
-  gradient_accumulation: 1
-  compile_model: true
-
-  save_every_n_epochs: 1
   keep_n_checkpoints: 3
 
 export:
@@ -58,6 +47,4 @@ export:
     opset_version: 17
 
 logging:
-  level: "INFO"
-  console: true
-  file: true
+  logs_dir: "logs"
