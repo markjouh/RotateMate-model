@@ -19,6 +19,20 @@ logger = logging.getLogger(__name__)
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic")
 
 
+class AddGaussianNoise:
+    def __init__(self, std: float = 0.01):
+        self.std = std
+
+    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
+        if self.std <= 0:
+            return tensor
+        noise = torch.randn_like(tensor) * self.std
+        return (tensor + noise).clamp_(0.0, 1.0)
+
+    def __repr__(self) -> str:  # pragma: no cover - helper repr
+        return f"AddGaussianNoise(std={self.std})"
+
+
 def _gather_images(paths: Sequence[Path | str]) -> List[Path]:
     image_paths: List[Path] = []
     for entry in paths:
@@ -66,7 +80,7 @@ class RotationDataset(Dataset):
         rotations: Sequence[int],
         *,
         image_size: int,
-        transform: Optional[T.Compose] = None,
+        transform: T.Compose,
         max_images: Optional[int] = None,
         fill_color: tuple[int, int, int] = (0, 0, 0),
     ) -> None:
@@ -84,7 +98,7 @@ class RotationDataset(Dataset):
         self.samples_per_image = len(self.rotations)
         self.image_size = image_size
         self.fill_color = fill_color
-        self.transform = transform or T.ToTensor()
+        self.transform = transform
 
         logger.info(
             "Loaded %d base images producing %d samples per epoch",
@@ -116,6 +130,25 @@ class RotationDataset(Dataset):
         return tensor, rotation_idx
 
 
+def _build_transform(image_size: int, augment: bool) -> T.Compose:
+    ops: list = []
+
+    if augment:
+        ops.append(T.ColorJitter(
+            brightness=0.15,
+            contrast=0.15,
+            saturation=0.1,
+            hue=0.02,
+        ))
+
+    ops.append(T.ToTensor())
+
+    if augment:
+        ops.append(AddGaussianNoise(std=0.01))
+
+    return T.Compose(ops)
+
+
 def create_dataloaders(
     train_dir: Path | str,
     val_dir: Path | str,
@@ -131,20 +164,22 @@ def create_dataloaders(
     max_val_images: Optional[int] = None,
     max_test_images: Optional[int] = None,
 ) -> dict[str, DataLoader]:
-    transform = T.ToTensor()
+
+    train_transform = _build_transform(image_size, augment=True)
+    eval_transform = _build_transform(image_size, augment=False)
 
     train_dataset = RotationDataset(
         [train_dir],
         rotations,
         image_size=image_size,
-        transform=transform,
+        transform=train_transform,
         max_images=max_train_images,
     )
     val_dataset = RotationDataset(
         [val_dir],
         rotations,
         image_size=image_size,
-        transform=transform,
+        transform=eval_transform,
         max_images=max_val_images,
     )
 
@@ -169,7 +204,7 @@ def create_dataloaders(
             [test_dir],
             rotations,
             image_size=image_size,
-            transform=transform,
+            transform=eval_transform,
             max_images=max_test_images,
         )
         dataloaders["test"] = DataLoader(test_dataset, shuffle=False, **loader_kwargs)
