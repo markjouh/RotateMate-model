@@ -16,7 +16,8 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from downloader import download_and_extract, verify_dataset
 from dataset import create_dataloaders
-from trainer import Trainer, export_model
+from trainer import Trainer
+from exporter import export_model
 
 
 def ensure_writable_dir(path: Path | str, description: str) -> Path:

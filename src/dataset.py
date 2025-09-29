@@ -11,26 +11,12 @@ from PIL import Image, ImageOps
 import torch
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms as T
-from torchvision.transforms import InterpolationMode
 from torchvision.transforms import functional as F
+from torchvision.transforms import InterpolationMode
 
 logger = logging.getLogger(__name__)
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic")
-
-
-class AddGaussianNoise:
-    def __init__(self, std: float = 0.01):
-        self.std = std
-
-    def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
-        if self.std <= 0:
-            return tensor
-        noise = torch.randn_like(tensor) * self.std
-        return (tensor + noise).clamp_(0.0, 1.0)
-
-    def __repr__(self) -> str:  # pragma: no cover - helper repr
-        return f"AddGaussianNoise(std={self.std})"
 
 
 def _gather_images(paths: Sequence[Path | str]) -> List[Path]:
@@ -80,7 +66,7 @@ class RotationDataset(Dataset):
         rotations: Sequence[int],
         *,
         image_size: int,
-        transform: T.Compose,
+        transform: Optional[T.Compose] = None,
         max_images: Optional[int] = None,
         fill_color: tuple[int, int, int] = (0, 0, 0),
     ) -> None:
@@ -98,7 +84,7 @@ class RotationDataset(Dataset):
         self.samples_per_image = len(self.rotations)
         self.image_size = image_size
         self.fill_color = fill_color
-        self.transform = transform
+        self.transform = transform or T.ToTensor()
 
         logger.info(
             "Loaded %d base images producing %d samples per epoch",
@@ -130,25 +116,6 @@ class RotationDataset(Dataset):
         return tensor, rotation_idx
 
 
-def _build_transform(image_size: int, augment: bool) -> T.Compose:
-    ops: list = []
-
-    if augment:
-        ops.append(T.ColorJitter(
-            brightness=0.15,
-            contrast=0.15,
-            saturation=0.1,
-            hue=0.0,
-        ))
-
-    ops.append(T.ToTensor())
-
-    if augment:
-        ops.append(AddGaussianNoise(std=0.01))
-
-    return T.Compose(ops)
-
-
 def create_dataloaders(
     train_dir: Path | str,
     val_dir: Path | str,
@@ -165,8 +132,8 @@ def create_dataloaders(
     max_test_images: Optional[int] = None,
 ) -> dict[str, DataLoader]:
 
-    train_transform = _build_transform(image_size, augment=True)
-    eval_transform = _build_transform(image_size, augment=False)
+    train_transform = T.ToTensor()
+    eval_transform = T.ToTensor()
 
     train_dataset = RotationDataset(
         [train_dir],
@@ -189,8 +156,6 @@ def create_dataloaders(
         "num_workers": num_workers,
         "persistent_workers": num_workers > 0,
     }
-    if pin_memory and torch.cuda.is_available():
-        loader_kwargs["pin_memory_device"] = "cuda"
     if num_workers > 0:
         loader_kwargs["prefetch_factor"] = prefetch_factor
 
@@ -209,7 +174,8 @@ def create_dataloaders(
         )
         dataloaders["test"] = DataLoader(test_dataset, shuffle=False, **loader_kwargs)
 
+    logger.info(f"Created dataloaders: {list(dataloaders.keys())}")
     for name, loader in dataloaders.items():
-        logger.info("%s loader: %d samples, %d batches", name, len(loader.dataset), len(loader))
+        logger.info(f"  {name}: {len(loader.dataset)} samples, {len(loader)} batches")
 
     return dataloaders
