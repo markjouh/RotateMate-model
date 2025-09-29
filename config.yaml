@@ -33,9 +33,9 @@ training:
   gradient_accumulation_steps: 1
 
   patience: 3
-  num_workers: 20  # Optimal for 26 vCPUs
+  num_workers: 4  # Reduced to prevent OOM
   pin_memory: true
-  prefetch_factor: 4
+  prefetch_factor: 2
   keep_n_checkpoints: 3
 
 export:
