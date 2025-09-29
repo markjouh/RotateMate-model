@@ -44,10 +44,15 @@ def extract_zip(zip_path, extract_to):
     extract_to = Path(extract_to)
     extract_to.mkdir(parents=True, exist_ok=True)
 
-    marker_file = extract_to / f".extracted_{zip_path.stem}"
-    if marker_file.exists():
-        logger.info(f"Already extracted: {zip_path.name}")
-        return extract_to
+    # Check if extraction folder already has images
+    split_name = zip_path.stem  # e.g., "train2017", "val2017", "test2017"
+    target_folder = extract_to / split_name
+
+    if target_folder.exists():
+        existing_images = list(target_folder.glob("*.jpg")) + list(target_folder.glob("*.png"))
+        if existing_images:
+            logger.info(f"Already extracted: {split_name} ({len(existing_images)} images found)")
+            return extract_to
 
     logger.info(f"Extracting {zip_path.name}")
 
@@ -59,7 +64,6 @@ def extract_zip(zip_path, extract_to):
                 zip_ref.extract(file, extract_to)
                 pbar.update(file.file_size)
 
-    marker_file.touch()
     return extract_to
 
 
