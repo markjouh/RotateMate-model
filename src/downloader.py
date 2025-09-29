@@ -72,9 +72,8 @@ def download_and_extract(urls, raw_dir, extract_dir):
 
     for url in urls:
         zip_path = download_file(url, raw_dir)
-        dataset_name = Path(urlparse(url).path).stem
-        extract_to = extract_dir / dataset_name
-        extract_zip(zip_path, extract_to)
+        # Extract directly to extract_dir, COCO zips already contain split folders
+        extract_zip(zip_path, extract_dir)
 
 
 def verify_dataset(extract_dir):
