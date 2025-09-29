@@ -8,12 +8,11 @@ data:
 
   raw_dir: "data/raw"
   extracted_dir: "data/coco"
-  processed_dir: "data/shards"
-
-  samples_per_shard: 10000
-  processing_workers: 20  # Use most of 26 vCPUs
   image_size: 256
   rotations: [0, 90, 180, 270]
+  train_split: "train2017"
+  val_split: "val2017"
+  test_split: "test2017"
 
 model:
   name: "apple/mobilevitv2-1.0-imagenet1k-256"
@@ -26,16 +25,16 @@ training:
   output_dir: "checkpoints"
   logs_dir: "logs"
 
-  batch_size: 2048  # 80GB HBM2e
+  batch_size: 1024  # Balanced for H100 80GB
   epochs: 10
-  learning_rate: 2.0e-3  # Linear scaling
+  learning_rate: 1.0e-3
   weight_decay: 1.0e-4
   gradient_accumulation_steps: 1
 
   patience: 3
-  num_workers: 4  # Reduced to prevent OOM
+  num_workers: 16
   pin_memory: true
-  prefetch_factor: 2
+  prefetch_factor: 4
   keep_n_checkpoints: 3
 
 export:

@@ -1,142 +1,142 @@
-"""
-Efficient PyTorch dataset for loading sharded .pt files with memory caching.
-"""
+"""Rotation classification dataset with on-the-fly preprocessing."""
 
-import bisect
+from __future__ import annotations
+
 import logging
+from contextlib import suppress
 from pathlib import Path
-import torch
-from torch.utils.data import Dataset, DataLoader
+from typing import List, Optional, Sequence
+
+from PIL import Image, ImageOps
+from torch.utils.data import DataLoader, Dataset
+from torchvision import transforms as T
+from torchvision.transforms import InterpolationMode
+from torchvision.transforms import functional as F
 
 logger = logging.getLogger(__name__)
 
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic")
 
-class ShardedDataset(Dataset):
-    def __init__(self, shard_dirs, cache_size=8, transforms=None):
-        if isinstance(shard_dirs, (str, Path)):
-            shard_dirs = [shard_dirs]
 
-        self.files = []
-        for shard_dir in shard_dirs:
-            shard_dir = Path(shard_dir)
-            if shard_dir.is_dir():
-                self.files.extend(sorted(shard_dir.glob("*.pt")))
-            elif shard_dir.exists():
-                self.files.append(shard_dir)
+def _gather_images(paths: Sequence[Path | str]) -> List[Path]:
+    image_paths: List[Path] = []
+    for entry in paths:
+        directory = Path(entry)
+        if not directory.exists():
+            logger.warning("Image directory missing: %s", directory)
+            continue
 
-        if not self.files:
-            raise FileNotFoundError(f"No .pt shards found in {shard_dirs}")
+        if directory.is_file():
+            image_paths.append(directory)
+            continue
 
-        logger.info(f"Found {len(self.files)} shard files")
+        for ext in IMAGE_EXTENSIONS:
+            image_paths.extend(directory.glob(f"*{ext}"))
+            image_paths.extend(directory.glob(f"*{ext.upper()}"))
 
-        self.cumulative_sizes = []
-        total_samples = 0
+    if not image_paths:
+        raise FileNotFoundError(f"No images found in {paths}")
 
-        for filepath in self.files:
-            data = torch.load(filepath, map_location="cpu", weights_only=True)
-            num_samples = data["labels"].numel()
-            total_samples += num_samples
-            self.cumulative_sizes.append(total_samples)
+    return sorted({path.resolve() for path in image_paths})
 
-        self.total_samples = total_samples
-        self.cache_size = cache_size
-        self.cache = {}
-        self.transforms = transforms
 
-    def __len__(self):
-        return self.total_samples
+class RotationDataset(Dataset):
+    def __init__(
+        self,
+        image_dirs: Sequence[Path | str],
+        rotations: Sequence[int],
+        transform: Optional[T.Compose] = None,
+        max_images: Optional[int] = None,
+    ) -> None:
+        if isinstance(image_dirs, (str, Path)):
+            image_dirs = [image_dirs]
 
-    def _get_shard_and_index(self, global_idx):
-        shard_idx = bisect.bisect_left(self.cumulative_sizes, global_idx + 1)
+        self.image_paths = _gather_images(image_dirs)
+        if max_images is not None:
+            self.image_paths = self.image_paths[:max_images]
 
-        if shard_idx == 0:
-            local_idx = global_idx
-        else:
-            local_idx = global_idx - self.cumulative_sizes[shard_idx - 1]
+        self.rotations = list(rotations)
+        if not self.rotations:
+            raise ValueError("At least one rotation must be provided")
 
-        return shard_idx, local_idx
+        self.samples_per_image = len(self.rotations)
+        self.transform = transform or T.Compose([
+            T.Resize(256, interpolation=InterpolationMode.BICUBIC),
+            T.CenterCrop(256),
+            T.ToTensor(),
+        ])
 
-    def _load_shard(self, shard_idx):
-        if shard_idx in self.cache:
-            return self.cache[shard_idx]
-
-        shard_data = torch.load(
-            self.files[shard_idx],
-            map_location="cpu",
-            weights_only=True
+        logger.info(
+            "Loaded %d base images producing %d samples per epoch",
+            len(self.image_paths),
+            len(self.image_paths) * self.samples_per_image,
         )
 
-        if len(self.cache) >= self.cache_size:
-            oldest_key = min(self.cache.keys())
-            del self.cache[oldest_key]
+    def __len__(self) -> int:
+        return len(self.image_paths) * self.samples_per_image
 
-        self.cache[shard_idx] = shard_data
-        return shard_data
+    def __getitem__(self, index: int):
+        image_idx, rotation_idx = divmod(index, self.samples_per_image)
+        path = self.image_paths[image_idx]
+        rotation_deg = self.rotations[rotation_idx]
 
-    def __getitem__(self, idx):
-        if idx < 0 or idx >= len(self):
-            raise IndexError(f"Index {idx} out of range")
+        with Image.open(path) as img:
+            with suppress(Exception):
+                img = ImageOps.exif_transpose(img)
+            img = img.convert("RGB")
+            img = F.rotate(img, rotation_deg, interpolation=InterpolationMode.BILINEAR)
 
-        shard_idx, local_idx = self._get_shard_and_index(idx)
-        shard_data = self._load_shard(shard_idx)
+        tensor = self.transform(img)
+        return tensor, rotation_idx
 
-        image = shard_data["images_u8"][local_idx].float().div_(255.0)
-        label = shard_data["labels"][local_idx].long()
 
-        if self.transforms:
-            image = self.transforms(image)
-
-        return image, label
+def _build_transform(image_size: int) -> T.Compose:
+    return T.Compose([
+        T.Resize(image_size, interpolation=InterpolationMode.BICUBIC),
+        T.CenterCrop(image_size),
+        T.ToTensor(),
+    ])
 
 
 def create_dataloaders(
-    train_dir,
-    val_dir,
-    test_dir=None,
-    batch_size=32,
-    num_workers=4,
-    pin_memory=True,
-    transforms=None,
-    prefetch_factor=2  # Standard prefetch for x86_64
-):
-    dataloaders = {}
+    train_dir: Path | str,
+    val_dir: Path | str,
+    *,
+    test_dir: Optional[Path | str] = None,
+    rotations: Sequence[int] = (0, 90, 180, 270),
+    image_size: int = 256,
+    batch_size: int = 32,
+    num_workers: int = 4,
+    pin_memory: bool = True,
+    prefetch_factor: int = 2,
+    max_train_images: Optional[int] = None,
+    max_val_images: Optional[int] = None,
+    max_test_images: Optional[int] = None,
+) -> dict[str, DataLoader]:
+    transform = _build_transform(image_size)
 
-    train_dataset = ShardedDataset(train_dir, transforms=transforms)
-    dataloaders['train'] = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
-        persistent_workers=num_workers > 0,
-        prefetch_factor=prefetch_factor if num_workers > 0 else None
-    )
+    train_dataset = RotationDataset([train_dir], rotations, transform, max_train_images)
+    val_dataset = RotationDataset([val_dir], rotations, transform, max_val_images)
 
-    val_dataset = ShardedDataset(val_dir, transforms=transforms)
-    dataloaders['val'] = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
-        persistent_workers=num_workers > 0,
-        prefetch_factor=prefetch_factor if num_workers > 0 else None
-    )
+    loader_kwargs = {
+        "batch_size": batch_size,
+        "pin_memory": pin_memory,
+        "num_workers": num_workers,
+        "persistent_workers": num_workers > 0,
+    }
+    if num_workers > 0:
+        loader_kwargs["prefetch_factor"] = prefetch_factor
 
-    if test_dir and Path(test_dir).exists():
-        test_dataset = ShardedDataset(test_dir, transforms=transforms)
-        dataloaders['test'] = DataLoader(
-            test_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=num_workers,
-            pin_memory=pin_memory,
-            persistent_workers=num_workers > 0,
-            prefetch_factor=prefetch_factor if num_workers > 0 else None
-        )
+    dataloaders: dict[str, DataLoader] = {
+        "train": DataLoader(train_dataset, shuffle=True, **loader_kwargs),
+        "val": DataLoader(val_dataset, shuffle=False, **loader_kwargs),
+    }
 
-    logger.info(f"Created dataloaders: {list(dataloaders.keys())}")
+    if test_dir is not None and Path(test_dir).exists():
+        test_dataset = RotationDataset([test_dir], rotations, transform, max_test_images)
+        dataloaders["test"] = DataLoader(test_dataset, shuffle=False, **loader_kwargs)
+
     for name, loader in dataloaders.items():
-        logger.info(f"  {name}: {len(loader.dataset)} samples, {len(loader)} batches")
+        logger.info("%s loader: %d samples, %d batches", name, len(loader.dataset), len(loader))
 
     return dataloaders

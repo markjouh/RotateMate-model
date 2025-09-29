@@ -14,7 +14,6 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from downloader import download_and_extract, verify_dataset
-from processor import create_shards, verify_shards
 from dataset import create_dataloaders
 from trainer import Trainer, export_model
 
@@ -57,52 +56,26 @@ def step_download(config):
     return splits
 
 
-def step_process(config, splits):
+def step_train(config, splits):
     logger = logging.getLogger(__name__)
-    logger.info("Step 2: Processing images")
+    logger.info("Step 2: Training model")
 
-    processed_dir = Path(config['data']['processed_dir'])
-    shard_dirs = {}
-
-    for split_name, split_path in splits.items():
-        logger.info(f"Processing {split_name}...")
-        output_dir = processed_dir / split_name
-
-        if output_dir.exists() and list(output_dir.glob("*.pt")):
-            logger.info(f"{split_name} already processed")
-            shard_dirs[split_name] = output_dir
-            continue
-
-        create_shards(
-            input_dirs=[split_path],
-            output_dir=output_dir,
-            samples_per_shard=config['data']['samples_per_shard'],
-            num_workers=config['data']['processing_workers'],
-            rotations=config['data']['rotations'],
-            target_size=config['data']['image_size']
-        )
-
-        verify_shards(output_dir)
-        shard_dirs[split_name] = output_dir
-
-    return shard_dirs
-
-
-def step_train(config, shard_dirs):
-    logger = logging.getLogger(__name__)
-    logger.info("Step 3: Training model")
-
-    train_dir = shard_dirs.get('train2017')
-    val_dir = shard_dirs.get('val2017')
-    test_dir = shard_dirs.get('test2017')
+    data_cfg = config['data']
+    train_dir = splits.get(data_cfg.get('train_split', 'train2017'))
+    val_dir = splits.get(data_cfg.get('val_split', 'val2017'))
+    test_dir = splits.get(data_cfg.get('test_split', 'test2017'))
 
     if not train_dir or not val_dir:
         raise ValueError("Missing train/val datasets")
 
+    rotations = data_cfg.get('rotations', [0, 90, 180, 270])
+    image_size = data_cfg.get('image_size', 256)
     dataloaders = create_dataloaders(
         train_dir=train_dir,
         val_dir=val_dir,
         test_dir=test_dir,
+        rotations=rotations,
+        image_size=image_size,
         batch_size=config['training']['batch_size'],
         num_workers=config['training']['num_workers'],
         pin_memory=config['training']['pin_memory'],
@@ -125,7 +98,7 @@ def step_train(config, shard_dirs):
 
 def step_export(config, checkpoint_path):
     logger = logging.getLogger(__name__)
-    logger.info("Step 4: Exporting model")
+    logger.info("Step 3: Exporting model")
 
     output_dir = Path(config['training']['output_dir']) / "exports"
     exported = export_model(checkpoint_path, config['export'], output_dir)
@@ -137,7 +110,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='config.yaml')
     parser.add_argument('--steps', nargs='+',
-                       choices=['download', 'process', 'train', 'export', 'all'],
+                       choices=['download', 'train', 'export', 'all'],
                        default=['all'])
     args = parser.parse_args()
 
@@ -145,7 +118,7 @@ def main():
     logger = setup_logging(config['logging']['logs_dir'])
 
     if 'all' in args.steps:
-        steps_to_run = ['download', 'process', 'train', 'export']
+        steps_to_run = ['download', 'train', 'export']
     else:
         steps_to_run = args.steps
 
@@ -159,21 +132,9 @@ def main():
         else:
             results['splits'] = verify_dataset(Path(config['data']['extracted_dir']))
 
-        # Process
-        if 'process' in steps_to_run:
-            results['shard_dirs'] = step_process(config, results['splits'])
-        else:
-            processed_dir = Path(config['data']['processed_dir'])
-            shard_dirs = {}
-            for split in ['train2017', 'val2017', 'test2017']:
-                path = processed_dir / split
-                if path.exists():
-                    shard_dirs[split] = path
-            results['shard_dirs'] = shard_dirs
-
         # Train
         if 'train' in steps_to_run:
-            results['best_model'] = step_train(config, results['shard_dirs'])
+            results['best_model'] = step_train(config, results['splits'])
 
         # Export
         if 'export' in steps_to_run:

@@ -4,6 +4,7 @@ Trains MobileViT V2 model on rotated images using mixed precision and exports to
 
 import json
 import logging
+from contextlib import nullcontext
 from pathlib import Path
 from datetime import datetime
 import torch
@@ -30,14 +31,11 @@ class ModelWrapper(nn.Module):
 class Trainer:
     def __init__(self, config):
         self.config = config
-        self.device = torch.device("cuda")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        if not torch.cuda.is_available():
-            raise RuntimeError("CUDA not available")
-
-        # H100: Enable TF32 for Hopper architecture
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
+        if self.device.type == "cuda":
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
 
         self.checkpoint_dir = Path(config['output_dir'])
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -59,7 +57,10 @@ class Trainer:
             'learning_rates': []
         }
 
-        logger.info(f"Using GPU: {torch.cuda.get_device_name(0)}")
+        if self.device.type == "cuda":
+            logger.info(f"Using GPU: {torch.cuda.get_device_name(0)}")
+        else:
+            logger.warning("Running on CPU; training will be much slower")
 
     def setup_model(self, model_config):
         from transformers import MobileViTV2ForImageClassification
@@ -101,7 +102,7 @@ class Trainer:
             eta_min=1e-6
         )
 
-        self.scaler = GradScaler("cuda")
+        self.scaler = GradScaler(enabled=self.device.type == "cuda")
 
         return self.optimizer, self.scheduler
 
@@ -135,7 +136,13 @@ class Trainer:
             images = images.to(self.device)
             labels = labels.to(self.device)
 
-            with autocast(device_type="cuda", dtype=torch.float16):
+            amp_ctx = (
+                autocast(device_type="cuda", dtype=torch.float16)
+                if self.device.type == "cuda"
+                else nullcontext()
+            )
+
+            with amp_ctx:
                 logits = self.model(images)
                 loss = criterion(logits, labels) / accumulation_steps
 

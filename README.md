@@ -28,7 +28,6 @@ python run.py --steps all
 Or run individual steps:
 ```bash
 python run.py --steps download    # Download COCO dataset (~20GB)
-python run.py --steps process     # Create rotated shards (~80GB)
 python run.py --steps train       # Train model
 python run.py --steps export      # Export to CoreML/ONNX
 ```
@@ -36,22 +35,21 @@ python run.py --steps export      # Export to CoreML/ONNX
 ## Configuration
 
 The `config.yaml` is optimized for H100 80GB:
-- **Batch size**: 2048 (uses ~40GB of 80GB HBM2e)
-- **Workers**: 20 for data loading (optimal for 26 vCPUs)
-- **Cache**: 8 shards in RAM
-- **Mixed precision**: FP16 with TF32 for matmuls
-- **Storage**: ~100GB total disk usage
+- **Batch size**: 1024 (comfortably fits in 80GB HBM2e)
+- **Workers**: 16 CPU workers keep the GPU fed
+- **Preprocessing**: rotations applied on the fly with torchvision
+- **Mixed precision**: FP16 with TF32 for Hopper matmuls
+- **Storage**: ~45GB total disk usage (COCO + checkpoints)
 
 ## Output
 
 - Model: `checkpoints/best_model.pth`
 - CoreML: `exports/model.mlmodel` (iOS deployment)
 - Logs: `logs/training_*.log`
-- Total disk usage: ~100GB (well within 1TB SSD)
+- Total disk usage: ~45GB (well within 1TB SSD)
 
 ## Performance
 
 On Lambda Cloud H100:
-- Training: ~15-20 minutes for full COCO dataset (10 epochs)
-- Processing: ~10 minutes to create all shards
+- Training: ~15 minutes for full COCO dataset (10 epochs)
 - Cost: ~$1.25 for complete training run
