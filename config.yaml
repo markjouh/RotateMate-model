@@ -11,7 +11,7 @@ data:
   processed_dir: "data/shards"
 
   samples_per_shard: 10000
-  processing_workers: 32  # Reduced to avoid file descriptor issues
+  processing_workers: 8  # Safe for multiprocessing
   image_size: 256
   rotations: [0, 90, 180, 270]
 

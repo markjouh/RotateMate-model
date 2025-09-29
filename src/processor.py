@@ -7,9 +7,9 @@ import logging
 from pathlib import Path
 from PIL import Image, ImageOps
 import numpy as np
-import torch
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +52,8 @@ def letterbox_resize(image, target_size=256, fill_color=(0, 0, 0)):
     return canvas
 
 
-def image_to_tensor(image):
-    arr = np.asarray(image, dtype=np.uint8).copy()  # Make writable copy
-    return torch.from_numpy(arr).permute(2, 0, 1).contiguous()
+def image_to_numpy(image):
+    return np.asarray(image, dtype=np.uint8).copy()  # Return numpy array
 
 
 def process_single_image(image_path, rotations=[0, 90, 180, 270], target_size=256):
@@ -72,13 +71,14 @@ def process_single_image(image_path, rotations=[0, 90, 180, 270], target_size=25
 
                 rotated = rotate_image(img, idx)
                 resized = letterbox_resize(rotated, target_size)
-                tensor = image_to_tensor(resized)
+                arr = image_to_numpy(resized)
 
-                images.append(tensor)
+                images.append(arr)
                 labels.append(idx)
 
             if images:
-                return torch.stack(images, 0), torch.tensor(labels, dtype=torch.long)
+                # Return numpy arrays, not torch tensors
+                return np.stack(images, 0), np.array(labels, dtype=np.int64)
 
     except Exception:
         pass
@@ -105,8 +105,18 @@ def create_shards(
     num_workers=8,
     rotations=[0, 90, 180, 270],
     target_size=256,
-    batch_size=100
+    batch_size=20  # Reduced to avoid memory issues
 ):
+    # Import torch only in main process
+    import torch
+
+    # Ensure spawn method for multiprocessing (safer with torch)
+    if multiprocessing.get_start_method(allow_none=True) != 'spawn':
+        try:
+            multiprocessing.set_start_method('spawn')
+        except RuntimeError:
+            pass  # Already set
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -145,9 +155,13 @@ def create_shards(
             for future in as_completed(future_to_batch):
                 results = future.result()
 
-                for img_tensors, labels in results:
-                    buffer_images.append(img_tensors)
-                    buffer_labels.append(labels)
+                for img_arrays, labels in results:
+                    # Convert numpy to torch tensors with proper shape
+                    img_tensor = torch.from_numpy(img_arrays).permute(0, 3, 1, 2)
+                    label_tensor = torch.from_numpy(labels).long()
+
+                    buffer_images.append(img_tensor)
+                    buffer_labels.append(label_tensor)
                     processed_images += 1
 
                     current_samples = sum(t.size(0) for t in buffer_images)
@@ -206,6 +220,9 @@ def create_shards(
 
 
 def verify_shards(shard_dir):
+    # Import torch only when needed
+    import torch
+
     shard_dir = Path(shard_dir)
     shard_files = sorted(shard_dir.glob("*.pt"))
 
