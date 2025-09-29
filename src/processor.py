@@ -80,8 +80,11 @@ def process_single_image(image_path, rotations=[0, 90, 180, 270], target_size=25
                 # Return numpy arrays, not torch tensors
                 return np.stack(images, 0), np.array(labels, dtype=np.int64)
 
-    except Exception:
-        pass
+    except Exception as e:
+        # Log first error only to avoid spam
+        if not hasattr(process_single_image, '_error_logged'):
+            process_single_image._error_logged = True
+            print(f"Error processing {image_path}: {e}")
 
     return None
 
@@ -91,6 +94,8 @@ def process_image_batch(args):
     results = []
 
     for path in image_paths:
+        # Ensure path is a Path object (in case it was serialized as string)
+        path = Path(path) if not isinstance(path, Path) else path
         result = process_single_image(path, rotations, target_size)
         if result is not None:
             results.append(result)
@@ -137,7 +142,9 @@ def create_shards(
     path_batches = []
     for i in range(0, len(all_paths), batch_size):
         batch = all_paths[i:i + batch_size]
-        path_batches.append((batch, rotations, target_size))
+        # Convert Path objects to strings for serialization
+        batch_str = [str(p) for p in batch]
+        path_batches.append((batch_str, rotations, target_size))
 
     buffer_images = []
     buffer_labels = []
