@@ -1,4 +1,4 @@
-# Configuration for Lambda Cloud H100 PCIe (80GB HBM2e)
+# Configuration for H100 80GB PCIe
 
 data:
   urls:
@@ -11,7 +11,7 @@ data:
   processed_dir: "data/shards"
 
   samples_per_shard: 10000
-  processing_workers: 20  # Lambda Cloud: 20 of 26 vCPUs
+  processing_workers: 20  # Use most of 26 vCPUs
   image_size: 256
   rotations: [0, 90, 180, 270]
 
@@ -26,16 +26,16 @@ training:
   output_dir: "checkpoints"
   logs_dir: "logs"
 
-  batch_size: 2048  # Lambda H100: 80GB HBM2e
+  batch_size: 2048  # 80GB HBM2e
   epochs: 10
-  learning_rate: 2.0e-3  # Linear scaling for batch 2048
+  learning_rate: 2.0e-3  # Linear scaling
   weight_decay: 1.0e-4
-  gradient_accumulation_steps: 1  # Not needed, batch fits
+  gradient_accumulation_steps: 1
 
   patience: 3
-  num_workers: 20  # Lambda Cloud: Optimal for 26 vCPUs
-  pin_memory: true  # Fast on x86_64
-  prefetch_factor: 4  # Leverage 200GiB RAM
+  num_workers: 20  # Optimal for 26 vCPUs
+  pin_memory: true
+  prefetch_factor: 4
   keep_n_checkpoints: 3
 
 export:

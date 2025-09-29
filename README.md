@@ -35,12 +35,12 @@ python run.py --steps export      # Export to CoreML/ONNX
 
 ## Configuration
 
-The `config.yaml` is optimized for Lambda Cloud H100:
+The `config.yaml` is optimized for H100 80GB:
 - **Batch size**: 2048 (uses ~40GB of 80GB HBM2e)
-- **Workers**: 20 for data loading (leaves 6 vCPUs for system)
-- **Cache**: 8 shards in RAM (~8GB of 200GiB available)
+- **Workers**: 20 for data loading (optimal for 26 vCPUs)
+- **Cache**: 8 shards in RAM
 - **Mixed precision**: FP16 with TF32 for matmuls
-- **Storage**: All data fits easily in 1TB SSD
+- **Storage**: ~100GB total disk usage
 
 ## Output
 

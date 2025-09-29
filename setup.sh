@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "Setting up environment for Lambda Cloud H100..."
+echo "Setting up environment..."
 
 python3 -m venv venv
 source venv/bin/activate
