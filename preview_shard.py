@@ -22,12 +22,17 @@ def preview_shard(shard_path, num_samples=4):
         axes[idx].axis('off')
 
     plt.tight_layout()
-    plt.show()
+
+    # Save the figure instead of showing it
+    output_path = Path(shard_path).stem + '_preview.png'
+    plt.savefig(output_path, dpi=100, bbox_inches='tight')
+    plt.close()  # Close the figure to free memory
 
     print(f"Shard: {shard_path}")
     print(f"Total samples: {images.shape[0]}")
     print(f"Image shape: {images[0].shape}")
     print(f"Labels: {labels[:num_samples].tolist()}")
+    print(f"Preview saved to: {output_path}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
