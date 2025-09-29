@@ -35,15 +35,16 @@ training:
   patience: 3
   num_workers: 16
   pin_memory: true
-  prefetch_factor: 2
+  prefetch_factor: 4
   keep_n_checkpoints: 3
+  max_grad_norm: 1.0
   channels_last: true
-  compile: false
+  compile: true
+  compile_mode: "max-autotune"
 
 export:
   coreml:
     enabled: true
-    target_ios: 17
     fp16: true
 
   onnx:

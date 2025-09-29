@@ -10,7 +10,7 @@ fi
 echo "Setting up environment..."
 
 python3 -m venv venv
-source venv/bin/activate
+. venv/bin/activate
 
 pip install --upgrade pip
 pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cu121
@@ -25,4 +25,4 @@ for dir in data checkpoints logs exports; do
   fi
 done
 
-echo "Setup complete. Run: source venv/bin/activate && python run.py --steps all"
+echo "Setup complete. Run: source venv/bin/activate && python train.py"

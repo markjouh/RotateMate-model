@@ -1,108 +1,52 @@
 #!/usr/bin/env python3
-"""
-Main orchestrator for training pipeline.
-"""
+"""Train RotateMate model with optional hyperparameter sweep."""
 
-import os
-import sys
 import argparse
+import copy
+import json
 import logging
 import yaml
-import time
 from pathlib import Path
 from datetime import datetime
+from itertools import product
 
-sys.path.insert(0, str(Path(__file__).parent / "src"))
-
-from downloader import download_and_extract, verify_dataset
-from dataset import create_dataloaders
-from trainer import Trainer
-from exporter import export_model
+from src import download_and_extract, verify_dataset, create_dataloaders, Trainer, export_model
 
 
-def ensure_writable_dir(path: Path | str, description: str) -> Path:
-    """Ensure *path* exists and is writable by the current user."""
+def setup_logging(log_dir, log_to_file=True):
+    """Setup logging to console and optionally to file."""
+    Path(log_dir).mkdir(parents=True, exist_ok=True)
 
-    resolved = Path(path).expanduser().resolve()
-    resolved.mkdir(parents=True, exist_ok=True)
-
-    if not os.access(resolved, os.W_OK):
-        raise PermissionError(
-            f"{description} path '{resolved}' is not writable. Fix it with chmod/chown or update config."
-        )
-
-    return resolved
-
-
-def setup_logging(log_dir, level="INFO"):
-    resolved_dir = ensure_writable_dir(log_dir, "logging.logs_dir")
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = resolved_dir / f"training_{timestamp}.log"
+    handlers = [logging.StreamHandler()]
+    if log_to_file:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = Path(log_dir) / f"training_{timestamp}.log"
+        handlers.append(logging.FileHandler(log_file))
 
     logging.basicConfig(
-        level=getattr(logging, level.upper()),
+        level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler()
-        ],
+        handlers=handlers,
         force=True
     )
-
     return logging.getLogger(__name__)
 
 
-def load_config(config_path):
-    with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
+def run_training(config, output_dir, dataloaders, seed=None):
+    """Run a single training job."""
+    import torch
+    import numpy as np
+    import random
 
+    # Set seed if provided
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
 
-def step_download(config):
-    logger = logging.getLogger(__name__)
-    logger.info("Step 1: Downloading datasets")
-
-    urls = config['data']['urls']
-    raw_dir = Path(config['data']['raw_dir'])
-    extract_dir = Path(config['data']['extracted_dir'])
-
-    download_and_extract(urls, raw_dir, extract_dir)
-    splits = verify_dataset(extract_dir)
-    logger.info(f"Found {len(splits)} dataset splits")
-    return splits
-
-
-def step_train(config, splits):
-    logger = logging.getLogger(__name__)
-    logger.info("Step 2: Training model")
-
-    data_cfg = config['data']
-    train_dir = splits.get(data_cfg.get('train_split', 'train2017'))
-    val_dir = splits.get(data_cfg.get('val_split', 'val2017'))
-    test_dir = splits.get(data_cfg.get('test_split', 'test2017'))
-
-    if not train_dir or not val_dir:
-        raise ValueError("Missing train/val datasets")
-
-    rotations = data_cfg.get('rotations', [0, 90, 180, 270])
-    image_size = data_cfg.get('image_size', 256)
-
-    training_cfg = config['training']
-    training_cfg['output_dir'] = str(ensure_writable_dir(training_cfg['output_dir'], "training.output_dir"))
-    training_cfg['logs_dir'] = str(ensure_writable_dir(training_cfg['logs_dir'], "training.logs_dir"))
-
-    dataloaders = create_dataloaders(
-        train_dir=train_dir,
-        val_dir=val_dir,
-        test_dir=test_dir,
-        rotations=rotations,
-        image_size=image_size,
-        batch_size=config['training']['batch_size'],
-        num_workers=config['training']['num_workers'],
-        pin_memory=config['training']['pin_memory'],
-        prefetch_factor=config['training'].get('prefetch_factor', 2)
-    )
-
+    # Train
     trainer = Trainer(config['training'])
     best_model_path = trainer.train(
         train_loader=dataloaders['train'],
@@ -110,72 +54,207 @@ def step_train(config, splits):
         model_config=config['model']
     )
 
-    if 'test' in dataloaders:
-        test_acc = trainer.evaluate(dataloaders['test'])
-        logger.info(f"Test accuracy: {test_acc:.4f}")
-
-    return {
-        'best_model': best_model_path,
-        'best_metric': trainer.best_metric
-    }
-
-
-def step_export(config, checkpoint_path):
-    logger = logging.getLogger(__name__)
-    logger.info("Step 3: Exporting model")
-
-    output_dir = ensure_writable_dir(Path(config['training']['output_dir']) / "exports", "export.output_dir")
-    exported = export_model(checkpoint_path, config['export'], config['model'], output_dir)
-    logger.info(f"Exported: {list(exported.keys())}")
-    return exported
+    return best_model_path, trainer.best_metric
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config', default='config.yaml')
-    parser.add_argument('--steps', nargs='+',
-                       choices=['download', 'train', 'export', 'all'],
-                       default=['all'])
+    parser = argparse.ArgumentParser(description="Train RotateMate model")
+    parser.add_argument('--config', default='configs/h100.yaml', help='Config file path')
+    parser.add_argument('--steps', nargs='+', choices=['download', 'train', 'export', 'all'],
+                       default=['all'], help='Pipeline steps to run')
+
+    # Hyperparameter sweep options
+    parser.add_argument('--learning-rate', nargs='+', type=float, help='Learning rates to sweep')
+    parser.add_argument('--weight-decay', nargs='+', type=float, help='Weight decays to sweep')
+    parser.add_argument('--seeds', nargs='+', type=int, help='Random seeds for sweep')
+
     args = parser.parse_args()
 
-    config = load_config(args.config)
-    logger = setup_logging(config['logging']['logs_dir'])
+    with open(args.config) as f:
+        config = yaml.safe_load(f)
 
-    if 'all' in args.steps:
-        steps_to_run = ['download', 'train', 'export']
+    # Determine if this is a sweep
+    is_sweep = any([args.learning_rate, args.weight_decay, args.seeds])
+
+    if is_sweep:
+        # Sweep mode
+        learning_rates = args.learning_rate or [config['training']['learning_rate']]
+        weight_decays = args.weight_decay or [config['training'].get('weight_decay', 1e-4)]
+        seeds = args.seeds or [0]
+
+        # Create sweep directory
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        sweep_dir = Path(config['training']['output_dir']) / f"sweep_{timestamp}"
+        sweep_dir.mkdir(parents=True, exist_ok=True)
+
+        logger = setup_logging(sweep_dir, log_to_file=False)
+        logger.info("Starting hyperparameter sweep")
+        logger.info(f"Learning rates: {learning_rates}")
+        logger.info(f"Weight decays: {weight_decays}")
+        logger.info(f"Seeds: {seeds}")
+
+        # Download data if needed
+        data_cfg = config['data']
+        if 'download' in args.steps or 'all' in args.steps:
+            logger.info("Downloading datasets")
+            download_and_extract(data_cfg['urls'], data_cfg['raw_dir'], data_cfg['extracted_dir'])
+
+        # Create dataloaders once
+        splits = verify_dataset(data_cfg['extracted_dir'])
+        train_dir = splits.get(data_cfg.get('train_split', 'train2017'))
+        val_dir = splits.get(data_cfg.get('val_split', 'val2017'))
+
+        if not train_dir or not val_dir:
+            raise ValueError("Missing train/val datasets")
+
+        logger.info("Creating dataloaders (reused across all experiments)")
+        dataloaders = create_dataloaders(
+            train_dir=train_dir,
+            val_dir=val_dir,
+            rotations=data_cfg.get('rotations', [0, 90, 180, 270]),
+            image_size=data_cfg.get('image_size', 256),
+            batch_size=config['training']['batch_size'],
+            num_workers=config['training']['num_workers'],
+            pin_memory=config['training']['pin_memory'],
+            prefetch_factor=config['training']['prefetch_factor']
+        )
+
+        # Run experiments
+        results = []
+        combinations = list(product(learning_rates, weight_decays, seeds))
+
+        for idx, (lr, wd, seed) in enumerate(combinations, 1):
+            exp_name = f"lr{lr:.0e}_wd{wd:.0e}_seed{seed}"
+            exp_dir = sweep_dir / exp_name
+            exp_dir.mkdir(parents=True, exist_ok=True)
+
+            logger.info(f"\n{'='*60}")
+            logger.info(f"Experiment {idx}/{len(combinations)}: {exp_name}")
+            logger.info(f"{'='*60}")
+
+            # Configure experiment
+            exp_config = copy.deepcopy(config)
+            exp_config['training']['learning_rate'] = lr
+            exp_config['training']['weight_decay'] = wd
+            exp_config['training']['output_dir'] = str(exp_dir)
+            exp_config['training']['logs_dir'] = str(exp_dir / "logs")
+
+            try:
+                best_model_path, best_val_acc = run_training(exp_config, exp_dir, dataloaders, seed)
+                results.append({
+                    'exp_name': exp_name,
+                    'lr': lr,
+                    'wd': wd,
+                    'seed': seed,
+                    'best_val_acc': best_val_acc,
+                    'best_model_path': str(best_model_path),
+                })
+                logger.info(f"Completed: {exp_name} - Val Acc: {best_val_acc:.4f}")
+            except Exception as e:
+                logger.error(f"Experiment failed: {e}")
+                results.append({
+                    'exp_name': exp_name,
+                    'lr': lr,
+                    'wd': wd,
+                    'seed': seed,
+                    'best_val_acc': 0.0,
+                    'error': str(e)
+                })
+
+        # Save and report results
+        results_sorted = sorted(results, key=lambda x: x.get('best_val_acc', 0), reverse=True)
+
+        summary_path = sweep_dir / "summary.json"
+        with open(summary_path, 'w') as f:
+            json.dump({
+                'sweep_config': {
+                    'learning_rates': learning_rates,
+                    'weight_decays': weight_decays,
+                    'seeds': seeds,
+                },
+                'results': results_sorted,
+                'best': results_sorted[0] if results_sorted else None
+            }, f, indent=2)
+
+        logger.info(f"\n{'='*60}")
+        logger.info("Sweep complete!")
+        logger.info(f"Results saved to: {summary_path}")
+
+        if results_sorted:
+            best = results_sorted[0]
+            logger.info(f"\nBest result:")
+            logger.info(f"  {best['exp_name']}: {best['best_val_acc']:.4f}")
+            logger.info(f"  LR: {best['lr']:.2e}, WD: {best['wd']:.2e}, Seed: {best['seed']}")
+
+            # Symlink best model
+            if 'best_model_path' in best and Path(best['best_model_path']).exists():
+                import os
+                standard_best = Path(config['training']['output_dir']) / "best_model.pth"
+                if standard_best.exists() or standard_best.is_symlink():
+                    standard_best.unlink()
+                os.symlink(Path(best['best_model_path']).absolute(), standard_best)
+                logger.info(f"  Best model: {standard_best}")
+
+            logger.info(f"\nTop 3 results:")
+            for i, result in enumerate(results_sorted[:3], 1):
+                logger.info(f"  {i}. {result['exp_name']}: {result['best_val_acc']:.4f}")
+
     else:
-        steps_to_run = args.steps
+        # Single training mode
+        steps = ['download', 'train', 'export'] if 'all' in args.steps else args.steps
+        data_cfg = config['data']
+        logger = setup_logging(config['logging']['logs_dir'])
 
-    start_time = time.time()
-    results = {}
+        # Step 1: Download
+        if 'download' in steps:
+            logger.info("Step 1: Downloading datasets")
+            download_and_extract(data_cfg['urls'], data_cfg['raw_dir'], data_cfg['extracted_dir'])
 
-    try:
-        # Download
-        if 'download' in steps_to_run:
-            results['splits'] = step_download(config)
-        else:
-            results['splits'] = verify_dataset(Path(config['data']['extracted_dir']))
+        # Step 2: Train
+        best_model_path = None
+        if 'train' in steps:
+            logger.info("Step 2: Training model")
+            splits = verify_dataset(data_cfg['extracted_dir'])
 
-        # Train
-        if 'train' in steps_to_run:
-            train_results = step_train(config, results['splits'])
-            results.update(train_results)
+            train_dir = splits.get(data_cfg.get('train_split', 'train2017'))
+            val_dir = splits.get(data_cfg.get('val_split', 'val2017'))
 
-        # Export
-        if 'export' in steps_to_run:
-            if 'best_model' not in results:
-                best_model = Path(config['training']['output_dir']) / "best_model.pth"
-                if not best_model.exists():
-                    raise FileNotFoundError("No model to export")
-                results['best_model'] = best_model
-            results['exported'] = step_export(config, results['best_model'])
+            if not train_dir or not val_dir:
+                raise ValueError("Missing train/val datasets")
 
-    except Exception as e:
-        logger.error(f"Pipeline failed: {e}")
-        raise
+            dataloaders = create_dataloaders(
+                train_dir=train_dir,
+                val_dir=val_dir,
+                rotations=data_cfg.get('rotations', [0, 90, 180, 270]),
+                image_size=data_cfg.get('image_size', 256),
+                batch_size=config['training']['batch_size'],
+                num_workers=config['training']['num_workers'],
+                pin_memory=config['training']['pin_memory'],
+                prefetch_factor=config['training']['prefetch_factor']
+            )
 
-    elapsed = time.time() - start_time
-    logger.info(f"Complete in {elapsed/60:.1f} minutes")
+            best_model_path, _ = run_training(config, config['training']['output_dir'], dataloaders)
+
+        # Step 3: Export
+        if 'export' in steps:
+            logger.info("Step 3: Exporting model")
+
+            if not best_model_path:
+                best_model_path = Path(config['training']['output_dir']) / "best_model.pth"
+                if not best_model_path.exists():
+                    raise FileNotFoundError(f"No model found at {best_model_path}")
+
+            output_dir = Path(config['training']['output_dir']) / "exports"
+            exported = export_model(
+                best_model_path,
+                config['export'],
+                config['model'],
+                output_dir,
+                image_size=data_cfg.get('image_size', 256)
+            )
+            logger.info("Exported: %s", list(exported.keys()))
+
+        logger.info("Complete!")
 
 
 if __name__ == "__main__":
