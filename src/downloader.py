@@ -22,10 +22,10 @@ class DownloadProgressBar(tqdm):
 
 def download_file(url, dest_path):
     dest_path = Path(dest_path)
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    dest_path.mkdir(parents=True, exist_ok=True)
 
     filename = os.path.basename(urlparse(url).path)
-    filepath = dest_path.parent / filename
+    filepath = dest_path / filename
 
     if filepath.exists():
         logger.info(f"Already exists: {filepath}")

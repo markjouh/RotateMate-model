@@ -3,6 +3,7 @@
 Main orchestrator for training pipeline.
 """
 
+import os
 import sys
 import argparse
 import logging
@@ -18,28 +19,22 @@ from dataset import create_dataloaders
 from trainer import Trainer, export_model
 
 
-def _prepare_log_dir(preferred: Path) -> Path:
-    """Return a writable directory for logs, falling back if necessary."""
+def ensure_writable_dir(path: Path | str, description: str) -> Path:
+    """Ensure *path* exists and is writable by the current user."""
 
-    candidates = [preferred, Path.home() / ".rotatemate" / "logs"]
+    resolved = Path(path).expanduser().resolve()
+    resolved.mkdir(parents=True, exist_ok=True)
 
-    for candidate in candidates:
-        candidate = candidate.expanduser()
-        try:
-            candidate.mkdir(parents=True, exist_ok=True)
-            test_file = candidate / ".write_test"
-            with open(test_file, "w", encoding="utf-8") as handle:
-                handle.write("ok")
-            test_file.unlink(missing_ok=True)
-            return candidate
-        except OSError as exc:
-            print(f"[setup_logging] Cannot use {candidate}: {exc}", file=sys.stderr)
+    if not os.access(resolved, os.W_OK):
+        raise PermissionError(
+            f"{description} path '{resolved}' is not writable. Fix it with chmod/chown or update config."
+        )
 
-    raise RuntimeError("Unable to find writable directory for logs")
+    return resolved
 
 
 def setup_logging(log_dir, level="INFO"):
-    resolved_dir = _prepare_log_dir(Path(log_dir))
+    resolved_dir = ensure_writable_dir(log_dir, "logging.logs_dir")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = resolved_dir / f"training_{timestamp}.log"
@@ -53,11 +48,7 @@ def setup_logging(log_dir, level="INFO"):
         ]
     )
 
-    logger = logging.getLogger(__name__)
-    if resolved_dir != Path(log_dir):
-        logger.warning(f"Logs directory not writable, using fallback: {resolved_dir}")
-
-    return logger
+    return logging.getLogger(__name__)
 
 
 def load_config(config_path):
@@ -93,6 +84,11 @@ def step_train(config, splits):
 
     rotations = data_cfg.get('rotations', [0, 90, 180, 270])
     image_size = data_cfg.get('image_size', 256)
+
+    training_cfg = config['training']
+    training_cfg['output_dir'] = str(ensure_writable_dir(training_cfg['output_dir'], "training.output_dir"))
+    training_cfg['logs_dir'] = str(ensure_writable_dir(training_cfg['logs_dir'], "training.logs_dir"))
+
     dataloaders = create_dataloaders(
         train_dir=train_dir,
         val_dir=val_dir,
@@ -123,7 +119,7 @@ def step_export(config, checkpoint_path):
     logger = logging.getLogger(__name__)
     logger.info("Step 3: Exporting model")
 
-    output_dir = Path(config['training']['output_dir']) / "exports"
+    output_dir = ensure_writable_dir(Path(config['training']['output_dir']) / "exports", "export.output_dir")
     exported = export_model(checkpoint_path, config['export'], config['model'], output_dir)
     logger.info(f"Exported: {list(exported.keys())}")
     return exported
