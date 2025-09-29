@@ -53,7 +53,7 @@ def letterbox_resize(image, target_size=256, fill_color=(0, 0, 0)):
 
 
 def image_to_tensor(image):
-    arr = np.asarray(image, dtype=np.uint8)
+    arr = np.asarray(image, dtype=np.uint8).copy()  # Make writable copy
     return torch.from_numpy(arr).permute(2, 0, 1).contiguous()
 
 
