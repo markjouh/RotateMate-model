@@ -1,4 +1,4 @@
-# Configuration for GH200 Training
+# Configuration for H100 80GB Training
 
 data:
   urls:
@@ -11,7 +11,7 @@ data:
   processed_dir: "data/shards"
 
   samples_per_shard: 10000
-  processing_workers: 8  # Safe for multiprocessing
+  processing_workers: 20  # H100: Use most of 26 vCPUs
   image_size: 256
   rotations: [0, 90, 180, 270]
 
@@ -26,16 +26,16 @@ training:
   output_dir: "checkpoints"
   logs_dir: "logs"
 
-  batch_size: 2048  # GH200: 96GB HBM3
+  batch_size: 2048  # H100: 80GB HBM3
   epochs: 10
-  learning_rate: 2.0e-3  # Linear scaling
+  learning_rate: 2.0e-3  # Linear scaling for batch 2048
   weight_decay: 1.0e-4
-  gradient_accumulation_steps: 1  # Optional
+  gradient_accumulation_steps: 1  # Not needed, batch fits
 
   patience: 3
-  num_workers: 64  # GH200: High parallelism
-  pin_memory: true
-  prefetch_factor: 4  # GH200: Leverage bandwidth
+  num_workers: 20  # H100: Optimal for 26 vCPUs
+  pin_memory: true  # Works great on x86_64
+  prefetch_factor: 4  # Aggressive prefetching
   keep_n_checkpoints: 3
 
 export:

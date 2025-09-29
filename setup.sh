@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "Setting up environment for GH200..."
+echo "Setting up environment for H100..."
 
 python3 -m venv venv
 source venv/bin/activate

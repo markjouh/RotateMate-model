@@ -1,6 +1,6 @@
 # RotateMate Model Training
 
-Image rotation classification using MobileViT V2. Optimized for NVIDIA GH200 (96GB HBM3).
+Image rotation classification using MobileViT V2. Optimized for NVIDIA H100 (80GB HBM3).
 
 ## Setup
 
@@ -26,10 +26,11 @@ python run.py --steps export      # Export to CoreML/ONNX
 
 ## Configuration
 
-The `config.yaml` is optimized for GH200:
-- Batch size: 2048 (96GB HBM3)
-- Workers: 64 data loading, 72 processing
+The `config.yaml` is optimized for H100 80GB:
+- Batch size: 2048 (fits comfortably in 80GB)
+- Workers: 20 data loading and processing (26 vCPUs)
 - Mixed precision FP16 + TF32 enabled
+- Full multiprocessing support on x86_64
 
 ## Output
 
@@ -39,4 +40,4 @@ The `config.yaml` is optimized for GH200:
 
 ## Performance
 
-On GH200: ~20 minutes for full COCO dataset (10 epochs)
+On H100: ~15-20 minutes for full COCO dataset (10 epochs)

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class ShardedDataset(Dataset):
-    def __init__(self, shard_dirs, cache_size=10, transforms=None):  # GH200: More cache
+    def __init__(self, shard_dirs, cache_size=8, transforms=None):  # H100: Optimized for 200GB RAM
         if isinstance(shard_dirs, (str, Path)):
             shard_dirs = [shard_dirs]
 
@@ -97,7 +97,7 @@ def create_dataloaders(
     num_workers=4,
     pin_memory=True,
     transforms=None,
-    prefetch_factor=2  # GH200: Prefetch optimization
+    prefetch_factor=2  # Standard prefetch for x86_64
 ):
     dataloaders = {}
 
