@@ -38,7 +38,7 @@ training:
   prefetch_factor: 2
   keep_n_checkpoints: 3
   channels_last: true
-  compile: true
+  compile: false
 
 export:
   coreml:

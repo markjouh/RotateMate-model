@@ -70,6 +70,7 @@ class Trainer:
         self.non_blocking = self.device.type == "cuda" and config.get('pin_memory', True)
         self.channels_last = self.device.type == "cuda" and config.get('channels_last', True)
         self.use_compile = self.device.type == "cuda" and config.get('compile', False)
+        self.compile_mode = config.get('compile_mode', 'reduce-overhead')
 
     def setup_model(self, model_config):
         model_id = model_config['name']
@@ -99,7 +100,7 @@ class Trainer:
 
         if self.use_compile:
             try:
-                self.model = torch.compile(self.model, mode="max-autotune")
+                self.model = torch.compile(self.model, mode=self.compile_mode)
             except Exception as err:
                 logger.warning(f"torch.compile failed: {err}")
                 self.use_compile = False
