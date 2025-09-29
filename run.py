@@ -18,12 +18,31 @@ from dataset import create_dataloaders
 from trainer import Trainer, export_model
 
 
+def _prepare_log_dir(preferred: Path) -> Path:
+    """Return a writable directory for logs, falling back if necessary."""
+
+    candidates = [preferred, Path.home() / ".rotatemate" / "logs"]
+
+    for candidate in candidates:
+        candidate = candidate.expanduser()
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            test_file = candidate / ".write_test"
+            with open(test_file, "w", encoding="utf-8") as handle:
+                handle.write("ok")
+            test_file.unlink(missing_ok=True)
+            return candidate
+        except OSError as exc:
+            print(f"[setup_logging] Cannot use {candidate}: {exc}", file=sys.stderr)
+
+    raise RuntimeError("Unable to find writable directory for logs")
+
+
 def setup_logging(log_dir, level="INFO"):
-    log_dir = Path(log_dir)
-    log_dir.mkdir(parents=True, exist_ok=True)
+    resolved_dir = _prepare_log_dir(Path(log_dir))
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = log_dir / f"training_{timestamp}.log"
+    log_file = resolved_dir / f"training_{timestamp}.log"
 
     logging.basicConfig(
         level=getattr(logging, level.upper()),
@@ -34,7 +53,11 @@ def setup_logging(log_dir, level="INFO"):
         ]
     )
 
-    return logging.getLogger(__name__)
+    logger = logging.getLogger(__name__)
+    if resolved_dir != Path(log_dir):
+        logger.warning(f"Logs directory not writable, using fallback: {resolved_dir}")
+
+    return logger
 
 
 def load_config(config_path):
