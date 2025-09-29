@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Optional, Sequence
 
 from PIL import Image, ImageOps
+import torch
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms as T
 from torchvision.transforms import InterpolationMode
@@ -153,6 +154,8 @@ def create_dataloaders(
         "num_workers": num_workers,
         "persistent_workers": num_workers > 0,
     }
+    if pin_memory and torch.cuda.is_available():
+        loader_kwargs["pin_memory_device"] = "cuda"
     if num_workers > 0:
         loader_kwargs["prefetch_factor"] = prefetch_factor
 

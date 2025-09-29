@@ -35,6 +35,11 @@ class Trainer:
         if self.device.type == "cuda":
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
+            torch.backends.cudnn.benchmark = True
+            try:
+                torch.set_float32_matmul_precision("high")
+            except AttributeError:
+                pass
 
         self.checkpoint_dir = Path(config['output_dir'])
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -62,6 +67,8 @@ class Trainer:
             logger.warning("Running on CPU; training will be much slower")
 
         self.non_blocking = self.device.type == "cuda" and config.get('pin_memory', True)
+        self.channels_last = self.device.type == "cuda" and config.get('channels_last', True)
+        self.use_compile = self.device.type == "cuda" and config.get('compile', False)
 
     def setup_model(self, model_config):
         model_id = model_config['name']
@@ -82,7 +89,19 @@ class Trainer:
         mean = model_config.get('normalize', {}).get('mean', data_cfg.get('mean', (0.485, 0.456, 0.406)))
         std = model_config.get('normalize', {}).get('std', data_cfg.get('std', (0.229, 0.224, 0.225)))
 
-        self.model = ModelWrapper(model_core, mean, std).to(self.device)
+        wrapper = ModelWrapper(model_core, mean, std)
+
+        if self.channels_last:
+            wrapper = wrapper.to(memory_format=torch.channels_last)
+
+        self.model = wrapper.to(self.device)
+
+        if self.use_compile:
+            try:
+                self.model = torch.compile(self.model, mode="max-autotune")
+            except Exception as err:
+                logger.warning(f"torch.compile failed: {err}")
+                self.use_compile = False
 
         return self.model
 
@@ -115,6 +134,8 @@ class Trainer:
 
         for images, labels in tqdm(dataloader, desc="Evaluating", leave=False):
             images = images.to(self.device, non_blocking=self.non_blocking)
+            if self.channels_last:
+                images = images.to(memory_format=torch.channels_last)
             labels = labels.to(self.device, non_blocking=self.non_blocking)
 
             logits = self.model(images)
@@ -135,6 +156,8 @@ class Trainer:
 
         for batch_idx, (images, labels) in enumerate(tqdm(dataloader, desc="Training", leave=False)):
             images = images.to(self.device, non_blocking=self.non_blocking)
+            if self.channels_last:
+                images = images.to(memory_format=torch.channels_last)
             labels = labels.to(self.device, non_blocking=self.non_blocking)
 
             amp_ctx = (

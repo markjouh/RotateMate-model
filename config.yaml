@@ -37,6 +37,8 @@ training:
   pin_memory: true
   prefetch_factor: 2
   keep_n_checkpoints: 3
+  channels_last: true
+  compile: true
 
 export:
   coreml:
