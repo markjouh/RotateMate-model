@@ -1,6 +1,4 @@
-"""
-Trains MobileViT V2 model on rotated images using mixed precision and exports to CoreML/ONNX.
-"""
+"""Train MobileNetV4 on rotated images and handle CoreML/ONNX export."""
 
 import json
 import logging
@@ -11,7 +9,8 @@ import torch
 import torch.nn as nn
 from torch.amp import GradScaler, autocast
 from tqdm import tqdm
-import warnings
+from timm import create_model
+from timm.data import resolve_model_data_config
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +19,12 @@ class ModelWrapper(nn.Module):
     def __init__(self, model_core, mean, std):
         super().__init__()
         self.model = model_core
-        self.register_buffer("mean", torch.tensor(mean).view(1, 3, 1, 1))
-        self.register_buffer("std", torch.tensor(std).view(1, 3, 1, 1))
+        self.register_buffer("mean", torch.tensor(mean, dtype=torch.float32).view(1, 3, 1, 1))
+        self.register_buffer("std", torch.tensor(std, dtype=torch.float32).view(1, 3, 1, 1))
 
     def forward(self, x):
         x = (x - self.mean) / self.std
-        return self.model(pixel_values=x).logits
+        return self.model(x)
 
 
 class Trainer:
@@ -62,25 +61,27 @@ class Trainer:
         else:
             logger.warning("Running on CPU; training will be much slower")
 
-    def setup_model(self, model_config):
-        from transformers import MobileViTV2ForImageClassification
-        warnings.filterwarnings("ignore", message=".*slow image processor.*")
+        self.non_blocking = self.device.type == "cuda" and config.get('pin_memory', True)
 
+    def setup_model(self, model_config):
         model_id = model_config['name']
         num_classes = model_config['num_classes']
+        pretrained = model_config.get('pretrained', True)
 
         logger.info(f"Loading {model_id}")
 
-        model_core = MobileViTV2ForImageClassification.from_pretrained(
+        model_core = create_model(
             model_id,
-            num_labels=num_classes,
-            ignore_mismatched_sizes=True,
-            label2id={str(i): i for i in range(num_classes)},
-            id2label={i: str(i) for i in range(num_classes)},
+            pretrained=pretrained,
+            num_classes=num_classes,
+            drop_rate=model_config.get('drop_rate', 0.0),
+            drop_path_rate=model_config.get('drop_path_rate', 0.0),
         )
 
-        mean = model_config['normalize']['mean']
-        std = model_config['normalize']['std']
+        data_cfg = resolve_model_data_config(model_core)
+        mean = model_config.get('normalize', {}).get('mean', data_cfg.get('mean', (0.485, 0.456, 0.406)))
+        std = model_config.get('normalize', {}).get('std', data_cfg.get('std', (0.229, 0.224, 0.225)))
+
         self.model = ModelWrapper(model_core, mean, std).to(self.device)
 
         return self.model
@@ -113,8 +114,8 @@ class Trainer:
         total = 0
 
         for images, labels in tqdm(dataloader, desc="Evaluating", leave=False):
-            images = images.to(self.device)
-            labels = labels.to(self.device)
+            images = images.to(self.device, non_blocking=self.non_blocking)
+            labels = labels.to(self.device, non_blocking=self.non_blocking)
 
             logits = self.model(images)
             predictions = logits.argmax(dim=1)
@@ -133,8 +134,8 @@ class Trainer:
         accumulation_steps = self.gradient_accumulation_steps
 
         for batch_idx, (images, labels) in enumerate(tqdm(dataloader, desc="Training", leave=False)):
-            images = images.to(self.device)
-            labels = labels.to(self.device)
+            images = images.to(self.device, non_blocking=self.non_blocking)
+            labels = labels.to(self.device, non_blocking=self.non_blocking)
 
             amp_ctx = (
                 autocast(device_type="cuda", dtype=torch.float16)
@@ -230,32 +231,25 @@ class Trainer:
         return self.checkpoint_dir / "best_model.pth"
 
 
-def export_model(checkpoint_path, export_config, output_dir):
+def export_model(checkpoint_path, export_config, model_config, output_dir):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     exported = {}
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
     model_state = checkpoint['model_state_dict']
-
-    model_config = {
-        'name': 'apple/mobilevitv2-1.0-imagenet1k-256',
-        'num_classes': 4,
-        'normalize': {
-            'mean': [0.485, 0.456, 0.406],
-            'std': [0.229, 0.224, 0.225]
-        }
-    }
-
-    from transformers import MobileViTV2ForImageClassification
-    model_core = MobileViTV2ForImageClassification.from_pretrained(
+    model_core = create_model(
         model_config['name'],
-        num_labels=model_config['num_classes'],
-        ignore_mismatched_sizes=True
+        pretrained=model_config.get('pretrained', False),
+        num_classes=model_config['num_classes'],
+        drop_rate=model_config.get('drop_rate', 0.0),
+        drop_path_rate=model_config.get('drop_path_rate', 0.0),
     )
-    model = ModelWrapper(model_core,
-                        model_config['normalize']['mean'],
-                        model_config['normalize']['std'])
+    data_cfg = resolve_model_data_config(model_core)
+    mean = model_config.get('normalize', {}).get('mean', data_cfg.get('mean', (0.485, 0.456, 0.406)))
+    std = model_config.get('normalize', {}).get('std', data_cfg.get('std', (0.229, 0.224, 0.225)))
+
+    model = ModelWrapper(model_core, mean, std)
     model.load_state_dict(model_state)
     model.eval()
 

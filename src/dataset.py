@@ -40,13 +40,34 @@ def _gather_images(paths: Sequence[Path | str]) -> List[Path]:
     return sorted({path.resolve() for path in image_paths})
 
 
+def letterbox_resize(image: Image.Image, target_size: int, fill_color: tuple[int, int, int] = (0, 0, 0)) -> Image.Image:
+    width, height = image.size
+    if width == 0 or height == 0:
+        return Image.new("RGB", (target_size, target_size), fill_color)
+
+    if width >= height:
+        new_width = target_size
+        new_height = max(1, int(round(height * target_size / width)))
+    else:
+        new_height = target_size
+        new_width = max(1, int(round(width * target_size / height)))
+
+    resized = image.resize((new_width, new_height), Image.LANCZOS)
+    canvas = Image.new("RGB", (target_size, target_size), fill_color)
+    canvas.paste(resized, ((target_size - new_width) // 2, (target_size - new_height) // 2))
+    return canvas
+
+
 class RotationDataset(Dataset):
     def __init__(
         self,
         image_dirs: Sequence[Path | str],
         rotations: Sequence[int],
+        *,
+        image_size: int,
         transform: Optional[T.Compose] = None,
         max_images: Optional[int] = None,
+        fill_color: tuple[int, int, int] = (0, 0, 0),
     ) -> None:
         if isinstance(image_dirs, (str, Path)):
             image_dirs = [image_dirs]
@@ -60,11 +81,9 @@ class RotationDataset(Dataset):
             raise ValueError("At least one rotation must be provided")
 
         self.samples_per_image = len(self.rotations)
-        self.transform = transform or T.Compose([
-            T.Resize(256, interpolation=InterpolationMode.BICUBIC),
-            T.CenterCrop(256),
-            T.ToTensor(),
-        ])
+        self.image_size = image_size
+        self.fill_color = fill_color
+        self.transform = transform or T.ToTensor()
 
         logger.info(
             "Loaded %d base images producing %d samples per epoch",
@@ -84,18 +103,16 @@ class RotationDataset(Dataset):
             with suppress(Exception):
                 img = ImageOps.exif_transpose(img)
             img = img.convert("RGB")
-            img = F.rotate(img, rotation_deg, interpolation=InterpolationMode.BILINEAR)
+            rotated = F.rotate(
+                img,
+                rotation_deg,
+                interpolation=InterpolationMode.BILINEAR,
+                fill=self.fill_color,
+            )
 
-        tensor = self.transform(img)
+        letterboxed = letterbox_resize(rotated, self.image_size, self.fill_color)
+        tensor = self.transform(letterboxed)
         return tensor, rotation_idx
-
-
-def _build_transform(image_size: int) -> T.Compose:
-    return T.Compose([
-        T.Resize(image_size, interpolation=InterpolationMode.BICUBIC),
-        T.CenterCrop(image_size),
-        T.ToTensor(),
-    ])
 
 
 def create_dataloaders(
@@ -113,10 +130,22 @@ def create_dataloaders(
     max_val_images: Optional[int] = None,
     max_test_images: Optional[int] = None,
 ) -> dict[str, DataLoader]:
-    transform = _build_transform(image_size)
+    transform = T.ToTensor()
 
-    train_dataset = RotationDataset([train_dir], rotations, transform, max_train_images)
-    val_dataset = RotationDataset([val_dir], rotations, transform, max_val_images)
+    train_dataset = RotationDataset(
+        [train_dir],
+        rotations,
+        image_size=image_size,
+        transform=transform,
+        max_images=max_train_images,
+    )
+    val_dataset = RotationDataset(
+        [val_dir],
+        rotations,
+        image_size=image_size,
+        transform=transform,
+        max_images=max_val_images,
+    )
 
     loader_kwargs = {
         "batch_size": batch_size,
@@ -133,7 +162,13 @@ def create_dataloaders(
     }
 
     if test_dir is not None and Path(test_dir).exists():
-        test_dataset = RotationDataset([test_dir], rotations, transform, max_test_images)
+        test_dataset = RotationDataset(
+            [test_dir],
+            rotations,
+            image_size=image_size,
+            transform=transform,
+            max_images=max_test_images,
+        )
         dataloaders["test"] = DataLoader(test_dataset, shuffle=False, **loader_kwargs)
 
     for name, loader in dataloaders.items():

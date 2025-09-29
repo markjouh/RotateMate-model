@@ -15,7 +15,8 @@ data:
   test_split: "test2017"
 
 model:
-  name: "apple/mobilevitv2-1.0-imagenet1k-256"
+  name: "mobilenetv4_conv_small"
+  pretrained: true
   num_classes: 4
   normalize:
     mean: [0.485, 0.456, 0.406]
@@ -27,14 +28,14 @@ training:
 
   batch_size: 1024  # Balanced for H100 80GB
   epochs: 10
-  learning_rate: 1.0e-3
+  learning_rate: 1.0e-4
   weight_decay: 1.0e-4
   gradient_accumulation_steps: 1
 
   patience: 3
   num_workers: 16
   pin_memory: true
-  prefetch_factor: 4
+  prefetch_factor: 2
   keep_n_checkpoints: 3
 
 export:

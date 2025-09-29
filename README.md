@@ -1,6 +1,6 @@
 # RotateMate Model Training
 
-Image rotation classification using MobileViT V2. Optimized for Lambda Cloud H100 PCIe instances.
+Image rotation classification using Google's MobileNetV4 (small). Optimized for Lambda Cloud H100 PCIe instances.
 
 ## Target Hardware
 
@@ -35,6 +35,7 @@ python run.py --steps export      # Export to CoreML/ONNX
 ## Configuration
 
 The `config.yaml` is optimized for H100 80GB:
+- **Backbone**: `mobilenetv4_conv_small` from timm with ImageNet weights
 - **Batch size**: 1024 (comfortably fits in 80GB HBM2e)
 - **Workers**: 16 CPU workers keep the GPU fed
 - **Preprocessing**: rotations applied on the fly with torchvision

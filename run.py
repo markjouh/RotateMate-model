@@ -101,7 +101,7 @@ def step_export(config, checkpoint_path):
     logger.info("Step 3: Exporting model")
 
     output_dir = Path(config['training']['output_dir']) / "exports"
-    exported = export_model(checkpoint_path, config['export'], output_dir)
+    exported = export_model(checkpoint_path, config['export'], config['model'], output_dir)
     logger.info(f"Exported: {list(exported.keys())}")
     return exported
 
