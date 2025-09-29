@@ -138,7 +138,7 @@ def _build_transform(image_size: int, augment: bool) -> T.Compose:
             brightness=0.15,
             contrast=0.15,
             saturation=0.1,
-            hue=0.02,
+            hue=0.0,
         ))
 
     ops.append(T.ToTensor())
