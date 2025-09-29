@@ -32,6 +32,16 @@ python run.py --steps train       # Train model
 python run.py --steps export      # Export to CoreML/ONNX
 ```
 
+### Parameter Sweep
+
+Run automated learning-rate/weight-decay sweeps (defaults: LR ∈ {5e-5, 1e-4, 2e-4}, WD ∈ {5e-5, 1e-4}, seeds ∈ {0,1}):
+
+```bash
+python sweep.py --learning-rate 1e-4 3e-4 1e-3 --weight-decay 1e-4 5e-5 --seeds 0 1
+```
+
+Results and checkpoints are stored under `checkpoints/sweep_*`, and `summary.json` lists the top runs.
+
 ## Configuration
 
 The `config.yaml` is optimized for H100 80GB:

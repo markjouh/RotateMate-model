@@ -1,10 +1,11 @@
 """Train MobileNetV4 on rotated images and handle CoreML/ONNX export."""
 
+import importlib
 import json
 import logging
 from contextlib import nullcontext
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 import torch
 import torch.nn as nn
 from torch.amp import GradScaler, autocast
@@ -276,6 +277,42 @@ def export_model(checkpoint_path, export_config, model_config, output_dir):
     model.load_state_dict(model_state)
     model.eval()
 
+    def convert_coreml_model_to_fp16(mlmodel):
+        """Attempt FP16 conversion across supported coremltools APIs."""
+        try:
+            from coremltools.models import utils as ct_utils
+            convert_fn = getattr(ct_utils, "convert_neural_network_weights_to_fp16", None)
+            if convert_fn is not None:
+                return convert_fn(mlmodel)
+        except Exception as err:
+            logger.warning(f"FP16 conversion via coremltools.models.utils failed: {err}")
+
+        for module_path in (
+            "coremltools.optimize.coreml.quantization_utils",
+            "coremltools.optimize.coreml",
+            "coremltools.models.neural_network.quantization_utils",
+        ):
+            try:
+                module = importlib.import_module(module_path)
+            except Exception:
+                continue
+
+            quantize_fn = getattr(module, "quantize_weights", None)
+            if quantize_fn is None:
+                continue
+
+            try:
+                return quantize_fn(mlmodel, nbits=16)
+            except Exception as err:
+                logger.warning(
+                    "FP16 conversion via %s.quantize_weights failed: %s",
+                    module_path,
+                    err,
+                )
+
+        logger.warning("FP16 conversion not available; exporting Core ML model with float32 weights.")
+        return mlmodel
+
     if export_config.get('coreml', {}).get('enabled', False):
         try:
             import coremltools as ct
@@ -295,7 +332,7 @@ def export_model(checkpoint_path, export_config, model_config, output_dir):
             )
 
             if export_config['coreml'].get('fp16', True):
-                mlmodel = ct.models.utils.convert_neural_network_weights_to_fp16(mlmodel)
+                mlmodel = convert_coreml_model_to_fp16(mlmodel)
 
             mlmodel_path = output_dir / "model.mlmodel"
             mlmodel.save(str(mlmodel_path))

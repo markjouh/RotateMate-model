@@ -45,7 +45,8 @@ def setup_logging(log_dir, level="INFO"):
         handlers=[
             logging.FileHandler(log_file),
             logging.StreamHandler()
-        ]
+        ],
+        force=True
     )
 
     return logging.getLogger(__name__)
@@ -112,7 +113,10 @@ def step_train(config, splits):
         test_acc = trainer.evaluate(dataloaders['test'])
         logger.info(f"Test accuracy: {test_acc:.4f}")
 
-    return best_model_path
+    return {
+        'best_model': best_model_path,
+        'best_metric': trainer.best_metric
+    }
 
 
 def step_export(config, checkpoint_path):
@@ -153,7 +157,8 @@ def main():
 
         # Train
         if 'train' in steps_to_run:
-            results['best_model'] = step_train(config, results['splits'])
+            train_results = step_train(config, results['splits'])
+            results.update(train_results)
 
         # Export
         if 'export' in steps_to_run:
