@@ -7,7 +7,7 @@ python3 -m venv venv
 source venv/bin/activate
 
 pip install --upgrade pip
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+pip install torch>=2.6.0 torchvision --index-url https://download.pytorch.org/whl/cu121
 pip install -r requirements.txt
 
 mkdir -p data/{raw,coco,shards} checkpoints logs exports
