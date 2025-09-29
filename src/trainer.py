@@ -35,7 +35,7 @@ class Trainer:
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA not available")
 
-        # H100: Enable TF32 for Hopper architecture
+        # Lambda H100: Enable TF32 for Hopper architecture
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
 

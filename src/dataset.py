@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class ShardedDataset(Dataset):
-    def __init__(self, shard_dirs, cache_size=8, transforms=None):  # H100: Optimized for 200GB RAM
+    def __init__(self, shard_dirs, cache_size=8, transforms=None):  # Lambda Cloud: 200GiB RAM
         if isinstance(shard_dirs, (str, Path)):
             shard_dirs = [shard_dirs]
 
