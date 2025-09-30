@@ -13,12 +13,13 @@ import argparse
 
 # Parse arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
+parser.add_argument('--epochs', type=int, default=50, help='Number of epochs')
+parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
 args = parser.parse_args()
 
 # Config
 BATCH_SIZE = 256
-EPOCHS = 10
+EPOCHS = args.epochs
 LR = args.lr
 IMG_SIZE = 224  # Match model's training resolution
 NUM_WORKERS = 26
@@ -85,6 +86,9 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
 
 print(f"Training on {len(train_dataset)} images, validating on {len(val_dataset)} images")
 
+best_val_loss = float('inf')
+best_model_state = None
+
 for epoch in range(EPOCHS):
     # Train
     model.train()
@@ -110,6 +114,7 @@ for epoch in range(EPOCHS):
 
     # Validate
     model.eval()
+    val_loss = 0
     val_correct = 0
     val_total = 0
 
@@ -117,17 +122,29 @@ for epoch in range(EPOCHS):
         for imgs, labels in val_loader:
             imgs, labels = imgs.cuda(), labels.cuda()
             outputs = model(imgs)
+            loss = criterion(outputs, labels)
+            val_loss += loss.item()
             _, predicted = outputs.max(1)
             val_total += labels.size(0)
             val_correct += predicted.eq(labels).sum().item()
 
     val_acc = 100. * val_correct / val_total
-    print(f"Epoch {epoch+1}: Train Acc {train_acc:.2f}%, Val Acc {val_acc:.2f}%, LR {optimizer.param_groups[0]['lr']:.2e}")
+    val_loss /= len(val_loader)
+
+    # Save best model
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        best_model_state = model.state_dict().copy()
+        print(f"Epoch {epoch+1}: Train Acc {train_acc:.2f}%, Val Acc {val_acc:.2f}%, Val Loss {val_loss:.4f}, LR {optimizer.param_groups[0]['lr']:.2e} *** BEST ***")
+    else:
+        print(f"Epoch {epoch+1}: Train Acc {train_acc:.2f}%, Val Acc {val_acc:.2f}%, Val Loss {val_loss:.4f}, LR {optimizer.param_groups[0]['lr']:.2e}")
+
     scheduler.step()
 
-# Save
-torch.save(model.state_dict(), "rotation_model.pth")
-print("Saved: rotation_model.pth")
+# Load best model for export
+model.load_state_dict(best_model_state)
+torch.save(best_model_state, "rotation_model.pth")
+print(f"Saved best model (val loss: {best_val_loss:.4f}): rotation_model.pth")
 
 # Export to CoreML
 model.eval().cpu()
