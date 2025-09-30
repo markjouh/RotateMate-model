@@ -35,7 +35,7 @@ def _gather_images(paths):
 
 
 class PreprocessedRotationDataset(Dataset):
-    """Fast dataset that loads preprocessed batches."""
+    """Fast dataset that loads preprocessed batches lazily."""
 
     def __init__(self, preprocessed_dir, rotations, max_images=None):
         self.preprocessed_dir = Path(preprocessed_dir)
@@ -44,36 +44,53 @@ class PreprocessedRotationDataset(Dataset):
 
         self.rotations = list(rotations)
 
-        # Load all batch files and build index
+        # Build index without loading images into memory
         batch_files = sorted(self.preprocessed_dir.glob("batch_*.pt"))
         if not batch_files:
             raise FileNotFoundError(f"No batch files found in {preprocessed_dir}")
 
         self.samples = []
         for batch_file in batch_files:
+            # Load metadata only to count samples
             batch_data = torch.load(batch_file, weights_only=True)
-            images = batch_data['images']
+            num_images = len(batch_data['images'])
 
             # Extract rotation from filename
             rotation_str = batch_file.stem.split("_rot")[1]
             rotation_deg = int(rotation_str)
             rotation_idx = self.rotations.index(rotation_deg)
 
-            # Add each image in batch to samples list
-            for i in range(len(images)):
-                self.samples.append((batch_file, i, rotation_idx, images[i]))
+            # Store (batch_file, index_in_batch, rotation_idx) without loading images
+            for i in range(num_images):
+                self.samples.append((batch_file, i, rotation_idx))
 
         if max_images and len(self.samples) > max_images:
             self.samples = self.samples[:max_images]
 
-        logger.info("Loaded %d preprocessed samples from %d batch files",
+        logger.info("Indexed %d preprocessed samples from %d batch files",
                    len(self.samples), len(batch_files))
+
+        # Cache for loaded batches
+        self.batch_cache = {}
 
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, index):
-        _, _, rotation_idx, image = self.samples[index]
+        batch_file, batch_idx, rotation_idx = self.samples[index]
+
+        # Load batch if not cached
+        if batch_file not in self.batch_cache:
+            batch_data = torch.load(batch_file, weights_only=True)
+            self.batch_cache[batch_file] = batch_data['images']
+
+            # Keep cache size reasonable (cache up to 4 batches)
+            if len(self.batch_cache) > 4:
+                # Remove oldest entry
+                oldest = next(iter(self.batch_cache))
+                del self.batch_cache[oldest]
+
+        image = self.batch_cache[batch_file][batch_idx]
         return image, rotation_idx
 
 
