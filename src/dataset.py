@@ -1,14 +1,10 @@
-"""Rotation classification dataset with on-the-fly preprocessing."""
+"""Rotation classification dataset using preprocessed tensors."""
 
 import logging
-from contextlib import suppress
 from pathlib import Path
 
-from PIL import Image, ImageOps
 import torch
 from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms as T
-from torchvision.transforms import functional as F
 
 logger = logging.getLogger(__name__)
 
@@ -38,64 +34,33 @@ def _gather_images(paths):
     return sorted(set(p.resolve() for p in image_paths))
 
 
-def letterbox_resize(image, target_size, fill_color=(0, 0, 0)):
-    """Resize image preserving aspect ratio, padding to square."""
-    width, height = image.size
-    if width == 0 or height == 0:
-        return Image.new("RGB", (target_size, target_size), fill_color)
+class PreprocessedRotationDataset(Dataset):
+    """Fast dataset that loads preprocessed tensor files."""
 
-    # Calculate new dimensions (longest side = target_size)
-    scale = target_size / max(width, height)
-    new_width = max(1, int(round(width * scale)))
-    new_height = max(1, int(round(height * scale)))
-
-    # Resize and center on canvas
-    resized = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-    canvas = Image.new("RGB", (target_size, target_size), fill_color)
-    offset = ((target_size - new_width) // 2, (target_size - new_height) // 2)
-    canvas.paste(resized, offset)
-    return canvas
-
-
-class RotationDataset(Dataset):
-    """Dataset that generates rotation classification samples on-the-fly."""
-
-    def __init__(self, image_dirs, rotations, image_size, transform=None, max_images=None, fill_color=(0, 0, 0)):
-        if isinstance(image_dirs, (str, Path)):
-            image_dirs = [image_dirs]
-
-        self.image_paths = _gather_images(image_dirs)
-        if max_images:
-            self.image_paths = self.image_paths[:max_images]
+    def __init__(self, preprocessed_dir, rotations, max_images=None):
+        self.preprocessed_dir = Path(preprocessed_dir)
+        if not self.preprocessed_dir.exists():
+            raise FileNotFoundError(f"Preprocessed directory not found: {preprocessed_dir}")
 
         self.rotations = list(rotations)
-        if not self.rotations:
-            raise ValueError("Must provide at least one rotation angle")
+        self.tensor_paths = sorted(self.preprocessed_dir.glob("*.pt"))
 
-        self.image_size = image_size
-        self.fill_color = fill_color
-        self.transform = transform or T.ToTensor()
+        if max_images:
+            self.tensor_paths = self.tensor_paths[:max_images * len(rotations)]
 
-        logger.info(
-            "Loaded %d images x %d rotations = %d samples",
-            len(self.image_paths), len(self.rotations), len(self)
-        )
+        if not self.tensor_paths:
+            raise FileNotFoundError(f"No .pt files found in {preprocessed_dir}")
+
+        logger.info("Loaded %d preprocessed samples", len(self.tensor_paths))
 
     def __len__(self):
-        return len(self.image_paths) * len(self.rotations)
+        return len(self.tensor_paths)
 
     def __getitem__(self, index):
-        image_idx, rotation_idx = divmod(index, len(self.rotations))
-        rotation_deg = self.rotations[rotation_idx]
-
-        # Load and preprocess image
-        img = Image.open(self.image_paths[image_idx])
-        with suppress(Exception):
-            img = ImageOps.exif_transpose(img)  # Fix EXIF orientation
-        img = img.convert("RGB")
-        img = F.rotate(img, rotation_deg, fill=self.fill_color)
-        img = letterbox_resize(img, self.image_size, self.fill_color)
-        return self.transform(img), rotation_idx
+        tensor = torch.load(self.tensor_paths[index], weights_only=True)
+        rotation_str = self.tensor_paths[index].stem.split("_rot")[1]
+        rotation_idx = self.rotations.index(int(rotation_str))
+        return tensor, rotation_idx
 
 
 def create_dataloaders(
@@ -114,9 +79,12 @@ def create_dataloaders(
 ):
     """Create train/val/test dataloaders for rotation classification."""
 
-    # Create datasets
-    train_dataset = RotationDataset(train_dir, rotations, image_size, max_images=max_train_images)
-    val_dataset = RotationDataset(val_dir, rotations, image_size, max_images=max_val_images)
+    # Expect preprocessed data
+    train_preprocessed = Path(str(train_dir) + "_preprocessed")
+    val_preprocessed = Path(str(val_dir) + "_preprocessed")
+
+    train_dataset = PreprocessedRotationDataset(train_preprocessed, rotations, max_train_images)
+    val_dataset = PreprocessedRotationDataset(val_preprocessed, rotations, max_val_images)
 
     # DataLoader kwargs
     loader_kwargs = {
@@ -134,9 +102,11 @@ def create_dataloaders(
     }
 
     # Optional test set
-    if test_dir and Path(test_dir).exists():
-        test_dataset = RotationDataset(test_dir, rotations, image_size, max_images=max_test_images)
-        dataloaders["test"] = DataLoader(test_dataset, shuffle=False, **loader_kwargs)
+    if test_dir:
+        test_preprocessed = Path(str(test_dir) + "_preprocessed")
+        if test_preprocessed.exists():
+            test_dataset = PreprocessedRotationDataset(test_preprocessed, rotations, max_test_images)
+            dataloaders["test"] = DataLoader(test_dataset, shuffle=False, **loader_kwargs)
 
     logger.info("Created dataloaders: %s", list(dataloaders.keys()))
     for name, loader in dataloaders.items():
