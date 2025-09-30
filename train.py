@@ -15,12 +15,14 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--epochs', type=int, default=50, help='Number of epochs')
 parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
+parser.add_argument('--patience', type=int, default=5, help='Early stopping patience')
 args = parser.parse_args()
 
 # Config
 BATCH_SIZE = 256
 EPOCHS = args.epochs
 LR = args.lr
+PATIENCE = args.patience
 IMG_SIZE = 224  # Match model's training resolution
 NUM_WORKERS = 26
 
@@ -88,6 +90,7 @@ print(f"Training on {len(train_dataset)} images, validating on {len(val_dataset)
 
 best_val_loss = float('inf')
 best_model_state = None
+patience_counter = 0
 
 for epoch in range(EPOCHS):
     # Train
@@ -135,9 +138,14 @@ for epoch in range(EPOCHS):
     if val_loss < best_val_loss:
         best_val_loss = val_loss
         best_model_state = model.state_dict().copy()
+        patience_counter = 0
         print(f"Epoch {epoch+1}: Train Acc {train_acc:.2f}%, Val Acc {val_acc:.2f}%, Val Loss {val_loss:.4f}, LR {optimizer.param_groups[0]['lr']:.2e} *** BEST ***")
     else:
-        print(f"Epoch {epoch+1}: Train Acc {train_acc:.2f}%, Val Acc {val_acc:.2f}%, Val Loss {val_loss:.4f}, LR {optimizer.param_groups[0]['lr']:.2e}")
+        patience_counter += 1
+        print(f"Epoch {epoch+1}: Train Acc {train_acc:.2f}%, Val Acc {val_acc:.2f}%, Val Loss {val_loss:.4f}, LR {optimizer.param_groups[0]['lr']:.2e} (patience: {patience_counter}/{PATIENCE})")
+        if patience_counter >= PATIENCE:
+            print(f"Early stopping triggered after {epoch+1} epochs")
+            break
 
     scheduler.step()
 
