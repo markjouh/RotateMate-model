@@ -65,15 +65,23 @@ def letterbox_transform(img):
     padded.paste(img, (paste_x, paste_y))
     return padded
 
-transform = transforms.Compose([
+train_transform = transforms.Compose([
+    transforms.Lambda(letterbox_transform),
+    transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.05),
+    transforms.ToTensor(),
+    transforms.Lambda(lambda x: x + torch.randn_like(x) * 0.02),  # Gaussian noise
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
+
+val_transform = transforms.Compose([
     transforms.Lambda(letterbox_transform),
     transforms.ToTensor(),
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
 
 # Data
-train_dataset = RotationDataset("data/train2017", transform)
-val_dataset = RotationDataset("data/val2017", transform)
+train_dataset = RotationDataset("data/train2017", train_transform)
+val_dataset = RotationDataset("data/val2017", val_transform)
 train_loader = DataLoader(train_dataset, BATCH_SIZE, shuffle=True, num_workers=NUM_WORKERS, pin_memory=True)
 val_loader = DataLoader(val_dataset, BATCH_SIZE, num_workers=NUM_WORKERS, pin_memory=True)
 
