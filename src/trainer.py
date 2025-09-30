@@ -55,12 +55,13 @@ class Trainer:
 
         # GPU-accelerated data augmentation
         self.train_aug = nn.Sequential(
-            K.ColorJitter(0.4, 0.4, 0.4, 0.1, p=0.8),
-            K.RandomGaussianBlur((3, 3), (0.1, 2.0), p=0.5),
+            K.ColorJitter(0.2, 0.2, 0.2, 0.05, p=0.5),
+            K.RandomGaussianNoise(mean=0.0, std=0.05, p=0.3),
         ).to(self.device)
 
-        # Loss function (created once for efficiency)
-        self.criterion = nn.CrossEntropyLoss()
+        # Loss function with label smoothing
+        label_smoothing = config.get('label_smoothing', 0.1)
+        self.criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
 
         # Config shortcuts
         self.gradient_accumulation_steps = config.get('gradient_accumulation_steps', 1)
@@ -124,7 +125,7 @@ class Trainer:
         return model
 
     def setup_optimizer(self):
-        """Create optimizer and learning rate scheduler."""
+        """Create optimizer and learning rate scheduler with warmup."""
         # Use fused AdamW on CUDA for better performance
         fused = self.device.type == "cuda"
         self.optimizer = torch.optim.AdamW(
@@ -136,11 +137,36 @@ class Trainer:
         if fused:
             logger.info("Using fused AdamW optimizer")
 
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer,
-            T_max=self.config['epochs'],
-            eta_min=1e-6
-        )
+        # Learning rate schedule with optional warmup
+        warmup_epochs = self.config.get('warmup_epochs', 1)
+        total_epochs = self.config['epochs']
+
+        if warmup_epochs > 0:
+            from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
+
+            warmup_scheduler = LinearLR(
+                self.optimizer,
+                start_factor=0.1,
+                end_factor=1.0,
+                total_iters=warmup_epochs
+            )
+            cosine_scheduler = CosineAnnealingLR(
+                self.optimizer,
+                T_max=total_epochs - warmup_epochs,
+                eta_min=1e-6
+            )
+            self.scheduler = SequentialLR(
+                self.optimizer,
+                schedulers=[warmup_scheduler, cosine_scheduler],
+                milestones=[warmup_epochs]
+            )
+            logger.info("Using warmup (%d epochs) + cosine annealing", warmup_epochs)
+        else:
+            self.scheduler = CosineAnnealingLR(
+                self.optimizer,
+                T_max=total_epochs,
+                eta_min=1e-6
+            )
 
         return self.optimizer, self.scheduler
 
@@ -182,7 +208,6 @@ class Trainer:
 
             # Optimizer step (with gradient accumulation)
             if (batch_idx + 1) % self.gradient_accumulation_steps == 0 or (batch_idx + 1) == len(dataloader):
-                # Gradient clipping for stability
                 self.scaler.unscale_(self.optimizer)
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
 
