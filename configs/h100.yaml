@@ -13,9 +13,8 @@ data:
   val_split: "val2017"
   test_split: "test2017"
 
-  preprocessing:
-    batch_size: 4096  # Large batches for 80GB GPU RAM
-    num_workers: 16  # 26 vCPUs available
+  max_train_images: null  # Use all available images
+  max_val_images: null
 
 model:
   name: "mobilenetv4_conv_small"
@@ -29,24 +28,15 @@ training:
   output_dir: "checkpoints"
   logs_dir: "logs"
 
-  batch_size: 1024  # Balanced for H100 80GB
+  batch_size: 2048  # Large batch for 80GB H100
   epochs: 10
-  learning_rate: 1.0e-4
+  learning_rate: 1.0e-3
   weight_decay: 1.0e-4
-  gradient_accumulation_steps: 1
-
-  warmup_epochs: 1
-  label_smoothing: 0.1
-  max_grad_norm: 1.0
 
   patience: 3
   num_workers: 8
   pin_memory: true
-  prefetch_factor: 4
-  keep_n_checkpoints: 3
-  channels_last: true
-  compile: true
-  compile_mode: "max-autotune"
+  prefetch_factor: 2
 
 export:
   coreml:

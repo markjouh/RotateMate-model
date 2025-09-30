@@ -1,10 +1,13 @@
-"""Rotation classification dataset using preprocessed tensors."""
+"""Rotation classification dataset."""
 
 import logging
 from pathlib import Path
+import random
 
 import torch
+import torchvision.transforms.functional as TF
 from torch.utils.data import DataLoader, Dataset
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +15,7 @@ IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff")
 
 
 def _gather_images(paths):
-    """Collect all image files from given paths (files or directories)."""
+    """Collect all image files from given paths."""
     image_paths = []
     for entry in paths:
         path = Path(entry)
@@ -23,7 +26,6 @@ def _gather_images(paths):
         if path.is_file():
             image_paths.append(path)
         else:
-            # Gather all images with supported extensions (case-insensitive)
             for ext in IMAGE_EXTENSIONS:
                 image_paths.extend(path.glob(f"*{ext}"))
                 image_paths.extend(path.glob(f"*{ext.upper()}"))
@@ -34,76 +36,43 @@ def _gather_images(paths):
     return sorted(set(p.resolve() for p in image_paths))
 
 
-class PreprocessedRotationDataset(Dataset):
-    """Fast dataset that loads preprocessed batches lazily."""
+class RotationDataset(Dataset):
+    """Dataset that generates rotation classification samples on-the-fly."""
 
-    def __init__(self, preprocessed_dir, rotations, max_images=None):
-        self.preprocessed_dir = Path(preprocessed_dir)
-        if not self.preprocessed_dir.exists():
-            raise FileNotFoundError(f"Preprocessed directory not found: {preprocessed_dir}")
+    def __init__(self, image_dir, image_size=256, max_images=None):
+        self.image_paths = _gather_images([image_dir])
+        if max_images:
+            self.image_paths = self.image_paths[:max_images]
 
-        self.rotations = list(rotations)
-        self.batch_cache = {}
+        self.image_size = image_size
+        self.rotations = [0, 90, 180, 270]
 
-        # Build lightweight index: just store batch file paths grouped by rotation
-        batch_files = sorted(self.preprocessed_dir.glob("batch_*.pt"))
-        if not batch_files:
-            raise FileNotFoundError(f"No batch files found in {preprocessed_dir}")
-
-        # Group batch files by rotation
-        self.rotation_batches = {rot: [] for rot in rotations}
-        for batch_file in batch_files:
-            rotation_str = batch_file.stem.split("_rot")[1]
-            rotation_deg = int(rotation_str)
-            self.rotation_batches[rotation_deg].append(batch_file)
-
-        # Lazy load: build samples list on first access
-        self._samples = None
-        self._indexed = False
-
-    def _build_index(self):
-        """Build the samples index lazily on first access."""
-        if self._indexed:
-            return
-
-        self._samples = []
-        for rotation_deg, batch_files in self.rotation_batches.items():
-            rotation_idx = self.rotations.index(rotation_deg)
-            for batch_file in batch_files:
-                # Use mmap to get size without loading
-                data = torch.load(batch_file, weights_only=True, mmap=True)
-                num_images = len(data['images'])
-                del data
-
-                for i in range(num_images):
-                    self._samples.append((batch_file, i, rotation_idx))
-
-        self._indexed = True
-        logger.info("Indexed %d samples", len(self._samples))
+        logger.info("Created dataset with %d images", len(self.image_paths))
 
     def __len__(self):
-        if not self._indexed:
-            self._build_index()
-        return len(self._samples)
+        return len(self.image_paths) * len(self.rotations)
 
     def __getitem__(self, index):
-        if not self._indexed:
-            self._build_index()
+        # Map index to (image_index, rotation_index)
+        img_idx = index // len(self.rotations)
+        rot_idx = index % len(self.rotations)
 
-        batch_file, batch_idx, rotation_idx = self._samples[index]
+        # Load image
+        img_path = self.image_paths[img_idx]
+        img = Image.open(img_path).convert('RGB')
 
-        # Load batch if not cached
-        if batch_file not in self.batch_cache:
-            batch_data = torch.load(batch_file, weights_only=True)
-            self.batch_cache[batch_file] = batch_data['images']
+        # Resize
+        img = TF.resize(img, (self.image_size, self.image_size))
 
-            # LRU: keep cache size reasonable
-            if len(self.batch_cache) > 8:
-                oldest = next(iter(self.batch_cache))
-                del self.batch_cache[oldest]
+        # Apply rotation
+        rotation_deg = self.rotations[rot_idx]
+        if rotation_deg != 0:
+            img = TF.rotate(img, rotation_deg)
 
-        image = self.batch_cache[batch_file][batch_idx]
-        return image, rotation_idx
+        # To tensor and normalize
+        img = TF.to_tensor(img)
+
+        return img, rot_idx
 
 
 def create_dataloaders(
@@ -120,20 +89,11 @@ def create_dataloaders(
     max_val_images=None,
     max_test_images=None,
 ):
-    """Create train/val/test dataloaders for rotation classification.
+    """Create train/val/test dataloaders."""
 
-    Note: rotations parameter is kept for compatibility but always uses [0, 90, 180, 270].
-    """
-    rotations = [0, 90, 180, 270]
+    train_dataset = RotationDataset(train_dir, image_size, max_train_images)
+    val_dataset = RotationDataset(val_dir, image_size, max_val_images)
 
-    # Expect preprocessed data
-    train_preprocessed = Path(str(train_dir) + "_preprocessed")
-    val_preprocessed = Path(str(val_dir) + "_preprocessed")
-
-    train_dataset = PreprocessedRotationDataset(train_preprocessed, rotations, max_train_images)
-    val_dataset = PreprocessedRotationDataset(val_preprocessed, rotations, max_val_images)
-
-    # DataLoader kwargs
     loader_kwargs = {
         "batch_size": batch_size,
         "pin_memory": pin_memory,
@@ -148,12 +108,9 @@ def create_dataloaders(
         "val": DataLoader(val_dataset, shuffle=False, **loader_kwargs),
     }
 
-    # Optional test set
     if test_dir:
-        test_preprocessed = Path(str(test_dir) + "_preprocessed")
-        if test_preprocessed.exists():
-            test_dataset = PreprocessedRotationDataset(test_preprocessed, rotations, max_test_images)
-            dataloaders["test"] = DataLoader(test_dataset, shuffle=False, **loader_kwargs)
+        test_dataset = RotationDataset(test_dir, image_size, max_test_images)
+        dataloaders["test"] = DataLoader(test_dataset, shuffle=False, **loader_kwargs)
 
     logger.info("Created dataloaders: %s", list(dataloaders.keys()))
     for name, loader in dataloaders.items():

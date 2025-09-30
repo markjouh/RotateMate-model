@@ -11,7 +11,6 @@ from datetime import datetime
 from itertools import product
 
 from src import download_and_extract, verify_dataset, create_dataloaders, Trainer, export_model
-from src.preprocess import preprocess_split_cpu
 
 
 def setup_logging(log_dir, log_to_file=True):
@@ -100,24 +99,6 @@ def main():
             logger.info("Downloading datasets")
             download_and_extract(data_cfg['urls'], data_cfg['raw_dir'], data_cfg['extracted_dir'])
 
-        # Preprocess if needed
-        rotations = [0, 90, 180, 270]
-        image_size = data_cfg.get('image_size', 256)
-        extracted_dir = Path(data_cfg['extracted_dir'])
-
-        preprocess_cfg = data_cfg.get('preprocessing', {})
-        preprocess_batch_size = preprocess_cfg.get('batch_size', 512)
-        preprocess_workers = preprocess_cfg.get('num_workers', 8)
-
-        for split_name in ['train2017', 'val2017']:
-            split_path = extracted_dir / split_name
-            preprocessed_dir = extracted_dir / f"{split_name}_preprocessed"
-
-            if split_path.exists() and not (preprocessed_dir.exists() and any(preprocessed_dir.glob("*.pt"))):
-                logger.info(f"Preprocessing {split_name}")
-                preprocess_split_cpu(split_path, preprocessed_dir, image_size=image_size,
-                                   batch_size=preprocess_batch_size, num_workers=preprocess_workers)
-
         # Create dataloaders once
         splits = verify_dataset(data_cfg['extracted_dir'])
         train_dir = splits.get(data_cfg.get('train_split', 'train2017'))
@@ -130,12 +111,13 @@ def main():
         dataloaders = create_dataloaders(
             train_dir=train_dir,
             val_dir=val_dir,
-            rotations=rotations,
             image_size=image_size,
             batch_size=config['training']['batch_size'],
             num_workers=config['training']['num_workers'],
             pin_memory=config['training']['pin_memory'],
-            prefetch_factor=config['training']['prefetch_factor']
+            prefetch_factor=config['training'].get('prefetch_factor', 2),
+            max_train_images=data_cfg.get('max_train_images'),
+            max_val_images=data_cfg.get('max_val_images')
         )
 
         # Run experiments
@@ -229,24 +211,6 @@ def main():
             logger.info("Step 1: Downloading datasets")
             download_and_extract(data_cfg['urls'], data_cfg['raw_dir'], data_cfg['extracted_dir'])
 
-        # Preprocess if needed
-        rotations = [0, 90, 180, 270]
-        image_size = data_cfg.get('image_size', 256)
-        extracted_dir = Path(data_cfg['extracted_dir'])
-
-        preprocess_cfg = data_cfg.get('preprocessing', {})
-        preprocess_batch_size = preprocess_cfg.get('batch_size', 512)
-        preprocess_workers = preprocess_cfg.get('num_workers', 8)
-
-        for split_name in ['train2017', 'val2017']:
-            split_path = extracted_dir / split_name
-            preprocessed_dir = extracted_dir / f"{split_name}_preprocessed"
-
-            if split_path.exists() and not (preprocessed_dir.exists() and any(preprocessed_dir.glob("*.pt"))):
-                logger.info(f"Preprocessing {split_name}")
-                preprocess_split_cpu(split_path, preprocessed_dir, image_size=image_size,
-                                   batch_size=preprocess_batch_size, num_workers=preprocess_workers)
-
         # Step 2: Train
         best_model_path = None
         if 'train' in steps:
@@ -262,12 +226,13 @@ def main():
             dataloaders = create_dataloaders(
                 train_dir=train_dir,
                 val_dir=val_dir,
-                rotations=rotations,
                 image_size=image_size,
                 batch_size=config['training']['batch_size'],
                 num_workers=config['training']['num_workers'],
                 pin_memory=config['training']['pin_memory'],
-                prefetch_factor=config['training']['prefetch_factor']
+                prefetch_factor=config['training'].get('prefetch_factor', 2),
+                max_train_images=data_cfg.get('max_train_images'),
+                max_val_images=data_cfg.get('max_val_images')
             )
 
             best_model_path, _ = run_training(config, config['training']['output_dir'], dataloaders)
