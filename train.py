@@ -1,9 +1,10 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
+from torchvision.io import read_image, ImageReadMode
 import timm
-from PIL import Image
 import os
 from pathlib import Path
 from tqdm import tqdm
@@ -28,60 +29,76 @@ NUM_WORKERS = 26
 
 # Dataset
 class RotationDataset(Dataset):
-    def __init__(self, img_dir, transform=None):
-        self.img_paths = list(Path(img_dir).glob("*.jpg"))
-        self.transform = transform
+    def __init__(self, img_dir, augment=False):
+        self.img_paths = [str(p) for p in Path(img_dir).glob("*.jpg")]
+        self.augment = augment
 
     def __len__(self):
         return len(self.img_paths)
 
     def __getitem__(self, idx):
-        img = Image.open(self.img_paths[idx]).convert("RGB")
+        # Fast JPEG decode directly to tensor
+        img = read_image(self.img_paths[idx], ImageReadMode.RGB).float() / 255.0
         rotation = random.choice([0, 1, 2, 3])  # 0°, 90°, 180°, 270°
 
-        # Rotate without resampling artifacts
+        # Rotate with efficient tensor ops
         if rotation == 1:
-            img = img.transpose(Image.ROTATE_270)
+            img = img.rot90(1, [1, 2])  # 90° CCW
         elif rotation == 2:
-            img = img.transpose(Image.ROTATE_180)
+            img = img.rot90(2, [1, 2])  # 180°
         elif rotation == 3:
-            img = img.transpose(Image.ROTATE_90)
+            img = img.rot90(3, [1, 2])  # 270° CCW
 
-        if self.transform:
-            img = self.transform(img)
+        # Letterbox resize
+        img = letterbox_resize(img, IMG_SIZE)
+
+        # Augmentation
+        if self.augment:
+            img = apply_augmentation(img)
+
+        # Normalize
+        img = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])(img)
         return img, rotation
 
-# Transforms
-def letterbox_transform(img):
-    # Scale to fit exactly inside IMG_SIZE x IMG_SIZE (upscale or downscale), pad with black
-    w, h = img.size
-    scale = min(IMG_SIZE / w, IMG_SIZE / h)
+# Fast letterbox resize using PyTorch
+def letterbox_resize(img, size):
+    c, h, w = img.shape
+    scale = min(size / w, size / h)
     new_w, new_h = int(w * scale), int(h * scale)
 
-    img = img.resize((new_w, new_h), Image.LANCZOS)
-    padded = Image.new("RGB", (IMG_SIZE, IMG_SIZE), (0, 0, 0))
-    paste_x = (IMG_SIZE - new_w) // 2
-    paste_y = (IMG_SIZE - new_h) // 2
-    padded.paste(img, (paste_x, paste_y))
-    return padded
+    # Resize with bilinear (fast, close to LANCZOS quality)
+    img = F.interpolate(img.unsqueeze(0), size=(new_h, new_w), mode='bilinear', align_corners=False).squeeze(0)
 
-train_transform = transforms.Compose([
-    transforms.Lambda(letterbox_transform),
-    transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.05),
-    transforms.ToTensor(),
-    transforms.Lambda(lambda x: x + torch.randn_like(x) * 0.02),  # Gaussian noise
-    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-])
+    # Pad to square
+    pad_h = size - new_h
+    pad_w = size - new_w
+    pad_top = pad_h // 2
+    pad_left = pad_w // 2
+    img = F.pad(img, (pad_left, pad_w - pad_left, pad_top, pad_h - pad_top), value=0)
+    return img
 
-val_transform = transforms.Compose([
-    transforms.Lambda(letterbox_transform),
-    transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-])
+def apply_augmentation(img):
+    # Color jitter
+    brightness = 1.0 + (random.random() * 0.2 - 0.1)  # 0.9-1.1
+    contrast = 1.0 + (random.random() * 0.2 - 0.1)
+    saturation = 1.0 + (random.random() * 0.2 - 0.1)
+
+    img = img * brightness
+    mean = img.mean(dim=0, keepdim=True)
+    img = (img - mean) * contrast + mean
+
+    # Saturation adjustment
+    gray = 0.299 * img[0] + 0.587 * img[1] + 0.114 * img[2]
+    img = gray.unsqueeze(0) + (img - gray.unsqueeze(0)) * saturation
+
+    # Gaussian noise
+    img = img + torch.randn_like(img) * 0.02
+
+    return img.clamp(0, 1)
 
 # Data
-train_dataset = RotationDataset("data/train2017", train_transform)
-val_dataset = RotationDataset("data/val2017", val_transform)
+train_dataset = RotationDataset("data/train2017", augment=True)
+val_dataset = RotationDataset("data/val2017", augment=False)
 train_loader = DataLoader(train_dataset, BATCH_SIZE, shuffle=True, num_workers=NUM_WORKERS, pin_memory=True)
 val_loader = DataLoader(val_dataset, BATCH_SIZE, num_workers=NUM_WORKERS, pin_memory=True)
 
