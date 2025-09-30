@@ -29,18 +29,30 @@ class RotationDataset(Dataset):
     def __getitem__(self, idx):
         img = Image.open(self.img_paths[idx]).convert("RGB")
         rotation = random.choice([0, 1, 2, 3])  # 0°, 90°, 180°, 270°
-        img = img.rotate(rotation * 90, expand=True)
+
+        # Rotate without resampling artifacts
+        if rotation == 1:
+            img = img.transpose(Image.ROTATE_270)
+        elif rotation == 2:
+            img = img.transpose(Image.ROTATE_180)
+        elif rotation == 3:
+            img = img.transpose(Image.ROTATE_90)
+
         if self.transform:
             img = self.transform(img)
         return img, rotation
 
 # Transforms
 def letterbox_transform(img):
-    # Scale to fit inside IMG_SIZE x IMG_SIZE, pad with black
-    img.thumbnail((IMG_SIZE, IMG_SIZE), Image.LANCZOS)
+    # Scale to fit exactly inside IMG_SIZE x IMG_SIZE (upscale or downscale), pad with black
+    w, h = img.size
+    scale = min(IMG_SIZE / w, IMG_SIZE / h)
+    new_w, new_h = int(w * scale), int(h * scale)
+
+    img = img.resize((new_w, new_h), Image.LANCZOS)
     padded = Image.new("RGB", (IMG_SIZE, IMG_SIZE), (0, 0, 0))
-    paste_x = (IMG_SIZE - img.width) // 2
-    paste_y = (IMG_SIZE - img.height) // 2
+    paste_x = (IMG_SIZE - new_w) // 2
+    paste_y = (IMG_SIZE - new_h) // 2
     padded.paste(img, (paste_x, paste_y))
     return padded
 
