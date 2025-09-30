@@ -14,7 +14,7 @@ import coremltools as ct
 BATCH_SIZE = 256
 EPOCHS = 10
 LR = 1e-3
-IMG_SIZE = 224
+IMG_SIZE = 256
 NUM_WORKERS = 26
 
 # Dataset
@@ -35,8 +35,17 @@ class RotationDataset(Dataset):
         return img, rotation
 
 # Transforms
+def letterbox_transform(img):
+    # Scale to fit inside IMG_SIZE x IMG_SIZE, pad with black
+    img.thumbnail((IMG_SIZE, IMG_SIZE), Image.LANCZOS)
+    padded = Image.new("RGB", (IMG_SIZE, IMG_SIZE), (0, 0, 0))
+    paste_x = (IMG_SIZE - img.width) // 2
+    paste_y = (IMG_SIZE - img.height) // 2
+    padded.paste(img, (paste_x, paste_y))
+    return padded
+
 transform = transforms.Compose([
-    transforms.Resize((IMG_SIZE, IMG_SIZE)),
+    transforms.Lambda(letterbox_transform),
     transforms.ToTensor(),
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
