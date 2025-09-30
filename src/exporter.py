@@ -14,14 +14,31 @@ from .trainer import ModelWrapper
 logger = logging.getLogger(__name__)
 
 
-def _convert_to_fp16(mlmodel):
-    """Convert CoreML model to FP16 using official quantization API."""
+def _quantize_model(mlmodel, quantization_mode="int8"):
+    """Quantize CoreML model for optimal mobile inference."""
     try:
-        from coremltools.models.neural_network import quantization_utils
-        logger.info("Converting model to FP16...")
-        return quantization_utils.quantize_weights(mlmodel, nbits=16)
+        import coremltools as ct
+
+        if quantization_mode == "int8":
+            logger.info("Quantizing model to INT8...")
+            op_config = ct.optimize.coreml.OpLinearQuantizerConfig(
+                mode="linear_symmetric",
+                weight_threshold=512,
+            )
+            config = ct.optimize.coreml.OptimizationConfig(global_config=op_config)
+            mlmodel = ct.optimize.coreml.linear_quantize_weights(mlmodel, config=config)
+            logger.info("INT8 quantization complete")
+
+        elif quantization_mode == "fp16":
+            logger.info("Quantizing model to FP16...")
+            from coremltools.models.neural_network import quantization_utils
+            mlmodel = quantization_utils.quantize_weights(mlmodel, nbits=16)
+            logger.info("FP16 quantization complete")
+
+        return mlmodel
+
     except Exception as err:
-        logger.warning("FP16 conversion failed: %s. Keeping FP32.", err)
+        logger.warning("Quantization failed: %s. Keeping FP32.", err)
         return mlmodel
 
 
@@ -92,9 +109,10 @@ def export_model(checkpoint_path, export_config, model_config, output_dir, image
             )
             logger.info("Model converted to CoreML successfully")
 
-            # Step 3: Optional FP16 quantization
-            if export_config["coreml"].get("fp16", True):
-                mlmodel = _convert_to_fp16(mlmodel)
+            # Step 3: Quantization
+            quantization = export_config["coreml"].get("quantization", "int8")
+            if quantization and quantization != "none":
+                mlmodel = _quantize_model(mlmodel, quantization)
 
             # Step 4: Save as mlpackage (modern format)
             mlmodel_path = output_dir / "model.mlpackage"

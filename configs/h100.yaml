@@ -48,7 +48,7 @@ training:
 export:
   coreml:
     enabled: true
-    fp16: true
+    quantization: "int8"  # Options: "int8", "fp16", "none"
 
   onnx:
     enabled: false

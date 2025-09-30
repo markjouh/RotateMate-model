@@ -33,5 +33,5 @@ Edit `configs/h100.yaml`:
 ## Output
 
 - `checkpoints/best_model.pth` - PyTorch checkpoint
-- `exports/model.mlpackage` - CoreML (FP16 quantized)
+- `exports/model.mlpackage` - CoreML (INT8 quantized)
 - `logs/training_*.log` - Training logs
