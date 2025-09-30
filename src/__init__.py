@@ -2,13 +2,13 @@
 
 __version__ = "0.1.0"
 
-from .dataset import RotationDataset, create_dataloaders
+from .dataset import PreprocessedRotationDataset, create_dataloaders
 from .trainer import Trainer, ModelWrapper
 from .exporter import export_model
 from .downloader import download_and_extract, verify_dataset
 
 __all__ = [
-    "RotationDataset",
+    "PreprocessedRotationDataset",
     "create_dataloaders",
     "Trainer",
     "ModelWrapper",
