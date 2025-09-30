@@ -1,6 +1,6 @@
 # RotateMate Model
 
-Image rotation classification for iOS deployment.
+Efficient and accurate classification model for the RotateMate iOS app.
 
 ## Task
 Classify image rotation into 4 classes: 0°, 90°, 180°, 270°
@@ -14,11 +14,7 @@ Classify image rotation into 4 classes: 0°, 90°, 180°, 270°
 ## Data
 - **Training**: COCO train2017 (118k images)
 - **Validation**: COCO val2017 (5k images)
-- Rotations generated on-the-fly during training
-
-## Hardware
-- H100 80GB GPU
-- 26 vCPUs
+- Random rotation, color jitter, Gaussian noise for each image on each epoch
 
 ## Setup
 ```bash
@@ -32,4 +28,4 @@ python train.py
 
 ## Output
 - `rotation_model.pth` - PyTorch checkpoint
-- `RotationClassifier.mlpackage` - INT8 quantized CoreML model for iOS
+- `RotationClassifier.mlpackage` - Exported CoreML model
