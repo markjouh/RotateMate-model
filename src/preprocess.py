@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""GPU-accelerated dataset preprocessing using Kornia."""
+"""CPU-optimized dataset preprocessing with multiprocessing."""
 
 import argparse
 import yaml
 import torch
+import numpy as np
 from pathlib import Path
 from tqdm import tqdm
-from concurrent.futures import ThreadPoolExecutor
-import kornia as K
+from multiprocessing import Pool
+import cv2
 
 from .dataset import _gather_images
 
@@ -15,28 +16,54 @@ from .dataset import _gather_images
 ROTATIONS = [0, 90, 180, 270]
 
 
-def load_image(img_path):
-    """Load a single image. Used for parallel loading."""
+def process_image(args):
+    """Process a single image: load, resize, apply all rotations."""
+    img_path, image_size = args
+
     try:
-        img = K.io.load_image(str(img_path), K.io.ImageLoadType.RGB32)
-        if img.dim() != 3 or img.shape[0] != 3:
-            return None, img_path.stem
-        return img, img_path.stem
+        # Load image with OpenCV (fast, SIMD-optimized)
+        img = cv2.imread(str(img_path))
+        if img is None:
+            return None
+
+        # Convert BGR to RGB
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        # Resize (OpenCV uses SIMD optimizations)
+        img = cv2.resize(img, (image_size, image_size), interpolation=cv2.INTER_LINEAR)
+
+        # Convert to tensor: (H, W, C) -> (C, H, W), normalize to [0, 1]
+        img_tensor = torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
+
+        # Generate all rotations
+        rotated_tensors = []
+        for rotation_deg in ROTATIONS:
+            if rotation_deg == 0:
+                rotated = img_tensor
+            elif rotation_deg == 90:
+                rotated = torch.rot90(img_tensor, k=1, dims=(1, 2))
+            elif rotation_deg == 180:
+                rotated = torch.rot90(img_tensor, k=2, dims=(1, 2))
+            elif rotation_deg == 270:
+                rotated = torch.rot90(img_tensor, k=3, dims=(1, 2))
+
+            rotated_tensors.append(rotated)
+
+        return (img_path.stem, rotated_tensors)
+
     except Exception:
-        return None, img_path.stem
+        return None
 
 
-def preprocess_split_gpu(image_dir, output_dir, image_size=256, batch_size=512, num_workers=8):
-    """Preprocess images using GPU acceleration with parallel CPU loading.
-
-    Loads images in parallel on CPU, processes on GPU, saves entire batches to disk.
+def preprocess_split_cpu(image_dir, output_dir, image_size=256, batch_size=4096, num_workers=16):
+    """Preprocess images using CPU multiprocessing.
 
     Args:
         image_dir: Directory containing raw images
         output_dir: Directory to save preprocessed tensors
         image_size: Target image size (default 256)
-        batch_size: Number of images to process at once (default 512)
-        num_workers: Number of threads for parallel image loading (default 8)
+        batch_size: Number of images per output file (default 4096)
+        num_workers: Number of worker processes (default 16)
 
     Returns:
         Total number of preprocessed tensors saved
@@ -49,70 +76,55 @@ def preprocess_split_gpu(image_dir, output_dir, image_size=256, batch_size=512, 
 
     print(f"Preprocessing {len(image_paths)} images with {len(ROTATIONS)} rotations", flush=True)
     print(f"Will save {total_expected} preprocessed tensors", flush=True)
+    print(f"Using {num_workers} worker processes", flush=True)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}, {num_workers} loading threads", flush=True)
+    # Prepare arguments for parallel processing
+    process_args = [(img_path, image_size) for img_path in image_paths]
 
+    # Process images in parallel
+    batch_idx = 0
+    batch_data = {rot: {'images': [], 'ids': []} for rot in ROTATIONS}
     total_saved = 0
     failed_count = 0
-    batch_idx = 0
 
-    for i in tqdm(range(0, len(image_paths), batch_size), desc="Processing batches"):
-        batch_paths = image_paths[i:i + batch_size]
-
-        # Parallel image loading on CPU
-        with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            results = list(executor.map(load_image, batch_paths))
-
-        # Filter out failed images and move to GPU
-        batch_images = []
-        batch_ids = []
-        for img, img_id in results:
-            if img is None:
+    with Pool(processes=num_workers) as pool:
+        for result in tqdm(pool.imap(process_image, process_args, chunksize=8),
+                          total=len(image_paths), desc="Processing images"):
+            if result is None:
                 failed_count += 1
-            else:
-                batch_images.append(img.to(device))
-                batch_ids.append(img_id)
+                continue
 
-        if not batch_images:
-            continue
+            img_id, rotated_tensors = result
 
-        # Stack and resize on GPU
-        images = torch.stack(batch_images)
-        images = K.geometry.transform.resize(
-            images,
-            (image_size, image_size),
-            interpolation='bilinear',
-            antialias=True
-        )
+            # Add to current batch for each rotation
+            for rot_idx, rotation_deg in enumerate(ROTATIONS):
+                batch_data[rotation_deg]['images'].append(rotated_tensors[rot_idx])
+                batch_data[rotation_deg]['ids'].append(img_id)
 
-        # Sanity check
-        assert images.shape == (len(batch_images), 3, image_size, image_size), \
-            f"Unexpected batch shape: {images.shape}"
+            # Save batch when full
+            if len(batch_data[ROTATIONS[0]]['images']) >= batch_size:
+                for rotation_deg in ROTATIONS:
+                    images_tensor = torch.stack(batch_data[rotation_deg]['images'])
+                    output_path = output_dir / f"batch_{batch_idx:04d}_rot{rotation_deg}.pt"
+                    torch.save({
+                        'images': images_tensor,
+                        'ids': batch_data[rotation_deg]['ids']
+                    }, output_path)
+                    total_saved += len(batch_data[rotation_deg]['ids'])
 
-        # Generate all rotations on GPU and save entire batch
+                batch_idx += 1
+                batch_data = {rot: {'images': [], 'ids': []} for rot in ROTATIONS}
+
+    # Save remaining images
+    if batch_data[ROTATIONS[0]]['images']:
         for rotation_deg in ROTATIONS:
-            if rotation_deg == 0:
-                rotated = images
-            else:
-                angle = torch.full(
-                    (len(images),),
-                    float(rotation_deg),
-                    dtype=torch.float32,
-                    device=device
-                )
-                rotated = K.geometry.transform.rotate(images, angle, padding_mode='zeros')
-
-            # Save entire batch as single file
-            batch_data = {
-                'images': rotated.cpu(),
-                'ids': batch_ids
-            }
+            images_tensor = torch.stack(batch_data[rotation_deg]['images'])
             output_path = output_dir / f"batch_{batch_idx:04d}_rot{rotation_deg}.pt"
-            torch.save(batch_data, output_path)
-            total_saved += len(batch_ids)
-
-        batch_idx += 1
+            torch.save({
+                'images': images_tensor,
+                'ids': batch_data[rotation_deg]['ids']
+            }, output_path)
+            total_saved += len(batch_data[rotation_deg]['ids'])
 
     print(f"\nSaved {total_saved}/{total_expected} preprocessed tensors to {output_dir}", flush=True)
     if failed_count > 0:
@@ -122,7 +134,7 @@ def preprocess_split_gpu(image_dir, output_dir, image_size=256, batch_size=512, 
 
 
 def main():
-    parser = argparse.ArgumentParser(description="GPU-accelerated dataset preprocessing")
+    parser = argparse.ArgumentParser(description="CPU-optimized dataset preprocessing")
     parser.add_argument('--config', default='configs/h100.yaml', help='Config file')
     args = parser.parse_args()
 
@@ -133,8 +145,8 @@ def main():
     image_size = data_cfg.get('image_size', 256)
 
     preprocess_cfg = data_cfg.get('preprocessing', {})
-    batch_size = preprocess_cfg.get('batch_size', 512)
-    num_workers = preprocess_cfg.get('num_workers', 8)
+    batch_size = preprocess_cfg.get('batch_size', 4096)
+    num_workers = preprocess_cfg.get('num_workers', 16)
 
     for split_name in ['train2017', 'val2017', 'test2017']:
         split_path = Path(data_cfg['extracted_dir']) / split_name
@@ -148,7 +160,7 @@ def main():
             continue
 
         print(f"\nPreprocessing {split_name}...", flush=True)
-        preprocess_split_gpu(
+        preprocess_split_cpu(
             split_path,
             output_dir,
             image_size=image_size,
