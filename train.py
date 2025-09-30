@@ -11,6 +11,7 @@ from datetime import datetime
 from itertools import product
 
 from src import download_and_extract, verify_dataset, create_dataloaders, Trainer, export_model
+from src.preprocess import preprocess_split_gpu
 
 
 def setup_logging(log_dir, log_to_file=True):
@@ -98,6 +99,19 @@ def main():
         if 'download' in args.steps or 'all' in args.steps:
             logger.info("Downloading datasets")
             download_and_extract(data_cfg['urls'], data_cfg['raw_dir'], data_cfg['extracted_dir'])
+
+        # Preprocess if needed
+        rotations = data_cfg.get('rotations', [0, 90, 180, 270])
+        image_size = data_cfg.get('image_size', 256)
+        extracted_dir = Path(data_cfg['extracted_dir'])
+
+        for split_name in ['train2017', 'val2017']:
+            split_path = extracted_dir / split_name
+            preprocessed_dir = extracted_dir / f"{split_name}_preprocessed"
+
+            if split_path.exists() and not (preprocessed_dir.exists() and any(preprocessed_dir.glob("*.pt"))):
+                logger.info(f"Preprocessing {split_name}")
+                preprocess_split_gpu(split_path, preprocessed_dir, rotations, image_size, batch_size=512)
 
         # Create dataloaders once
         splits = verify_dataset(data_cfg['extracted_dir'])
@@ -209,6 +223,19 @@ def main():
         if 'download' in steps:
             logger.info("Step 1: Downloading datasets")
             download_and_extract(data_cfg['urls'], data_cfg['raw_dir'], data_cfg['extracted_dir'])
+
+        # Preprocess if needed
+        rotations = data_cfg.get('rotations', [0, 90, 180, 270])
+        image_size = data_cfg.get('image_size', 256)
+        extracted_dir = Path(data_cfg['extracted_dir'])
+
+        for split_name in ['train2017', 'val2017']:
+            split_path = extracted_dir / split_name
+            preprocessed_dir = extracted_dir / f"{split_name}_preprocessed"
+
+            if split_path.exists() and not (preprocessed_dir.exists() and any(preprocessed_dir.glob("*.pt"))):
+                logger.info(f"Preprocessing {split_name}")
+                preprocess_split_gpu(split_path, preprocessed_dir, rotations, image_size, batch_size=512)
 
         # Step 2: Train
         best_model_path = None
