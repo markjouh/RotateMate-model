@@ -14,7 +14,7 @@ data:
   test_split: "test2017"
 
   preprocessing:
-    batch_size: 512
+    batch_size: 4096  # Large batches for 80GB GPU RAM
     num_workers: 16  # 26 vCPUs available
 
 model:

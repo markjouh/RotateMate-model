@@ -35,7 +35,7 @@ def _gather_images(paths):
 
 
 class PreprocessedRotationDataset(Dataset):
-    """Fast dataset that loads preprocessed tensor files."""
+    """Fast dataset that loads preprocessed batches."""
 
     def __init__(self, preprocessed_dir, rotations, max_images=None):
         self.preprocessed_dir = Path(preprocessed_dir)
@@ -43,24 +43,38 @@ class PreprocessedRotationDataset(Dataset):
             raise FileNotFoundError(f"Preprocessed directory not found: {preprocessed_dir}")
 
         self.rotations = list(rotations)
-        self.tensor_paths = sorted(self.preprocessed_dir.glob("*.pt"))
 
-        if max_images:
-            self.tensor_paths = self.tensor_paths[:max_images * len(rotations)]
+        # Load all batch files and build index
+        batch_files = sorted(self.preprocessed_dir.glob("batch_*.pt"))
+        if not batch_files:
+            raise FileNotFoundError(f"No batch files found in {preprocessed_dir}")
 
-        if not self.tensor_paths:
-            raise FileNotFoundError(f"No .pt files found in {preprocessed_dir}")
+        self.samples = []
+        for batch_file in batch_files:
+            batch_data = torch.load(batch_file, weights_only=True)
+            images = batch_data['images']
 
-        logger.info("Loaded %d preprocessed samples", len(self.tensor_paths))
+            # Extract rotation from filename
+            rotation_str = batch_file.stem.split("_rot")[1]
+            rotation_deg = int(rotation_str)
+            rotation_idx = self.rotations.index(rotation_deg)
+
+            # Add each image in batch to samples list
+            for i in range(len(images)):
+                self.samples.append((batch_file, i, rotation_idx, images[i]))
+
+        if max_images and len(self.samples) > max_images:
+            self.samples = self.samples[:max_images]
+
+        logger.info("Loaded %d preprocessed samples from %d batch files",
+                   len(self.samples), len(batch_files))
 
     def __len__(self):
-        return len(self.tensor_paths)
+        return len(self.samples)
 
     def __getitem__(self, index):
-        tensor = torch.load(self.tensor_paths[index], weights_only=True)
-        rotation_str = self.tensor_paths[index].stem.split("_rot")[1]
-        rotation_idx = self.rotations.index(int(rotation_str))
-        return tensor, rotation_idx
+        _, _, rotation_idx, image = self.samples[index]
+        return image, rotation_idx
 
 
 def create_dataloaders(

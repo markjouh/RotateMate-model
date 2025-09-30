@@ -29,7 +29,7 @@ def load_image(img_path):
 def preprocess_split_gpu(image_dir, output_dir, image_size=256, batch_size=512, num_workers=8):
     """Preprocess images using GPU acceleration with parallel CPU loading.
 
-    Loads images in parallel on CPU, then does all processing (resize, rotate) on GPU.
+    Loads images in parallel on CPU, processes on GPU, saves entire batches to disk.
 
     Args:
         image_dir: Directory containing raw images
@@ -55,6 +55,7 @@ def preprocess_split_gpu(image_dir, output_dir, image_size=256, batch_size=512, 
 
     total_saved = 0
     failed_count = 0
+    batch_idx = 0
 
     for i in tqdm(range(0, len(image_paths), batch_size), desc="Processing batches"):
         batch_paths = image_paths[i:i + batch_size]
@@ -89,7 +90,7 @@ def preprocess_split_gpu(image_dir, output_dir, image_size=256, batch_size=512, 
         assert images.shape == (len(batch_images), 3, image_size, image_size), \
             f"Unexpected batch shape: {images.shape}"
 
-        # Generate all rotations on GPU
+        # Generate all rotations on GPU and save entire batch
         for rotation_deg in ROTATIONS:
             if rotation_deg == 0:
                 rotated = images
@@ -102,12 +103,16 @@ def preprocess_split_gpu(image_dir, output_dir, image_size=256, batch_size=512, 
                 )
                 rotated = K.geometry.transform.rotate(images, angle, padding_mode='zeros')
 
-            # Save each rotated image
-            rotated_cpu = rotated.cpu()
-            for j, image_id in enumerate(batch_ids):
-                output_path = output_dir / f"{image_id}_rot{rotation_deg}.pt"
-                torch.save(rotated_cpu[j], output_path)
-                total_saved += 1
+            # Save entire batch as single file
+            batch_data = {
+                'images': rotated.cpu(),
+                'ids': batch_ids
+            }
+            output_path = output_dir / f"batch_{batch_idx:04d}_rot{rotation_deg}.pt"
+            torch.save(batch_data, output_path)
+            total_saved += len(batch_ids)
+
+        batch_idx += 1
 
     print(f"\nSaved {total_saved}/{total_expected} preprocessed tensors to {output_dir}", flush=True)
     if failed_count > 0:
