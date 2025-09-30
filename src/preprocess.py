@@ -5,10 +5,10 @@ import argparse
 import yaml
 import torch
 import numpy as np
+import cv2
 from pathlib import Path
 from tqdm import tqdm
 from multiprocessing import Pool
-from PIL import Image
 
 from .dataset import _gather_images
 
@@ -24,13 +24,20 @@ def process_image(args):
     img_path, image_size = args
 
     try:
-        # Load and resize with PIL
-        img = Image.open(img_path).convert('RGB')
-        img = img.resize((image_size, image_size), Image.BILINEAR)
+        # Load with OpenCV (SIMD-optimized)
+        img = cv2.imread(str(img_path))
+        if img is None:
+            return None
 
-        # Convert to numpy array: (H, W, C) -> (C, H, W), float32 in [0, 1]
-        img_np = np.array(img, dtype=np.float32) / 255.0
-        img_np = np.transpose(img_np, (2, 0, 1))  # CHW format
+        # Convert BGR to RGB
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        # Resize with OpenCV (SIMD-optimized)
+        img = cv2.resize(img, (image_size, image_size), interpolation=cv2.INTER_LINEAR)
+
+        # Convert to float32 in [0, 1] and CHW format
+        img_np = img.astype(np.float32) / 255.0
+        img_np = np.transpose(img_np, (2, 0, 1))
 
         # Generate all rotations using numpy
         rotated_arrays = []
@@ -53,7 +60,7 @@ def process_image(args):
 
 
 def preprocess_split_cpu(image_dir, output_dir, image_size=256, batch_size=4096, num_workers=16):
-    """Preprocess images using CPU multiprocessing.
+    """Preprocess images using CPU multiprocessing with OpenCV.
 
     Args:
         image_dir: Directory containing raw images
@@ -73,7 +80,7 @@ def preprocess_split_cpu(image_dir, output_dir, image_size=256, batch_size=4096,
 
     print(f"Preprocessing {len(image_paths)} images with {len(ROTATIONS)} rotations", flush=True)
     print(f"Will save {total_expected} preprocessed tensors", flush=True)
-    print(f"Using {num_workers} worker processes", flush=True)
+    print(f"Using {num_workers} worker processes with OpenCV", flush=True)
 
     # Prepare arguments for parallel processing
     process_args = [(img_path, image_size) for img_path in image_paths]
@@ -85,7 +92,7 @@ def preprocess_split_cpu(image_dir, output_dir, image_size=256, batch_size=4096,
     failed_count = 0
 
     with Pool(processes=num_workers) as pool:
-        for result in tqdm(pool.imap(process_image, process_args, chunksize=8),
+        for result in tqdm(pool.imap_unordered(process_image, process_args, chunksize=32),
                           total=len(image_paths), desc="Processing images"):
             if result is None:
                 failed_count += 1
@@ -132,7 +139,7 @@ def preprocess_split_cpu(image_dir, output_dir, image_size=256, batch_size=4096,
 
 
 def main():
-    parser = argparse.ArgumentParser(description="CPU-optimized dataset preprocessing")
+    parser = argparse.ArgumentParser(description="CPU-optimized dataset preprocessing with OpenCV")
     parser.add_argument('--config', default='configs/h100.yaml', help='Config file')
     args = parser.parse_args()
 
