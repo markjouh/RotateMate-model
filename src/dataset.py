@@ -77,7 +77,11 @@ def create_dataloaders(
     max_val_images=None,
     max_test_images=None,
 ):
-    """Create train/val/test dataloaders for rotation classification."""
+    """Create train/val/test dataloaders for rotation classification.
+
+    Note: rotations parameter is kept for compatibility but always uses [0, 90, 180, 270].
+    """
+    rotations = [0, 90, 180, 270]
 
     # Expect preprocessed data
     train_preprocessed = Path(str(train_dir) + "_preprocessed")

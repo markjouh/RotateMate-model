@@ -9,7 +9,6 @@ data:
   raw_dir: "data/raw"
   extracted_dir: "data/coco"
   image_size: 256
-  rotations: [0, 90, 180, 270]
   train_split: "train2017"
   val_split: "val2017"
   test_split: "test2017"

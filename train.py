@@ -101,7 +101,7 @@ def main():
             download_and_extract(data_cfg['urls'], data_cfg['raw_dir'], data_cfg['extracted_dir'])
 
         # Preprocess if needed
-        rotations = data_cfg.get('rotations', [0, 90, 180, 270])
+        rotations = [0, 90, 180, 270]
         image_size = data_cfg.get('image_size', 256)
         extracted_dir = Path(data_cfg['extracted_dir'])
 
@@ -125,8 +125,8 @@ def main():
         dataloaders = create_dataloaders(
             train_dir=train_dir,
             val_dir=val_dir,
-            rotations=data_cfg.get('rotations', [0, 90, 180, 270]),
-            image_size=data_cfg.get('image_size', 256),
+            rotations=rotations,
+            image_size=image_size,
             batch_size=config['training']['batch_size'],
             num_workers=config['training']['num_workers'],
             pin_memory=config['training']['pin_memory'],
@@ -225,7 +225,7 @@ def main():
             download_and_extract(data_cfg['urls'], data_cfg['raw_dir'], data_cfg['extracted_dir'])
 
         # Preprocess if needed
-        rotations = data_cfg.get('rotations', [0, 90, 180, 270])
+        rotations = [0, 90, 180, 270]
         image_size = data_cfg.get('image_size', 256)
         extracted_dir = Path(data_cfg['extracted_dir'])
 
@@ -252,8 +252,8 @@ def main():
             dataloaders = create_dataloaders(
                 train_dir=train_dir,
                 val_dir=val_dir,
-                rotations=data_cfg.get('rotations', [0, 90, 180, 270]),
-                image_size=data_cfg.get('image_size', 256),
+                rotations=rotations,
+                image_size=image_size,
                 batch_size=config['training']['batch_size'],
                 num_workers=config['training']['num_workers'],
                 pin_memory=config['training']['pin_memory'],

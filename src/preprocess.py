@@ -11,8 +11,16 @@ import kornia as K
 from .dataset import _gather_images
 
 
-def preprocess_split_gpu(image_dir, output_dir, rotations, image_size, batch_size=512):
-    """Preprocess images using GPU acceleration."""
+def preprocess_split_gpu(image_dir, output_dir, rotations=[0, 90, 180, 270], image_size=256, batch_size=512):
+    """Preprocess images using GPU acceleration.
+
+    Args:
+        image_dir: Directory containing raw images
+        output_dir: Directory to save preprocessed tensors
+        rotations: Always [0, 90, 180, 270]
+        image_size: Target image size (default 256)
+        batch_size: GPU batch size (default 512)
+    """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -82,7 +90,6 @@ def main():
         config = yaml.safe_load(f)
 
     data_cfg = config['data']
-    rotations = data_cfg.get('rotations', [0, 90, 180, 270])
     image_size = data_cfg.get('image_size', 256)
 
     # Preprocess each split
@@ -98,7 +105,7 @@ def main():
             continue
 
         print(f"\nPreprocessing {split_name}...")
-        preprocess_split_gpu(split_path, output_dir, rotations, image_size, args.batch_size)
+        preprocess_split_gpu(split_path, output_dir, image_size=image_size, batch_size=args.batch_size)
 
     print("\nPreprocessing complete! Training will auto-detect and use preprocessed data.")
 
