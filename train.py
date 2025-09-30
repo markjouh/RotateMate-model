@@ -13,7 +13,7 @@ import coremltools as ct
 # Config
 BATCH_SIZE = 256
 EPOCHS = 10
-LR = 1e-3
+LR = 1e-4
 IMG_SIZE = 256
 NUM_WORKERS = 26
 
