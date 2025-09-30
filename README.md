@@ -17,6 +17,26 @@ Classify image rotation into 4 classes: 0°, 90°, 180°, 270°
 - Random rotation, color jitter, Gaussian noise for each image on each epoch
 
 ## Setup
+
+### 1. Create Python environment
+Using venv:
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+Or using conda:
+```bash
+conda create -n rotatemate python=3.12
+conda activate rotatemate
+```
+
+### 2. Install dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Download COCO datasets
 ```bash
 ./setup.sh
 ```
