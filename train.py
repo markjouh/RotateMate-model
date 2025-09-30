@@ -9,11 +9,17 @@ from pathlib import Path
 from tqdm import tqdm
 import random
 import coremltools as ct
+import argparse
+
+# Parse arguments
+parser = argparse.ArgumentParser()
+parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
+args = parser.parse_args()
 
 # Config
 BATCH_SIZE = 256
 EPOCHS = 10
-LR = 3e-3
+LR = args.lr
 IMG_SIZE = 224  # Match model's training resolution
 NUM_WORKERS = 26
 
