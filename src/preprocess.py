@@ -4,11 +4,10 @@
 import argparse
 import yaml
 import torch
-import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 from multiprocessing import Pool
-import cv2
+from PIL import Image
 
 from .dataset import _gather_images
 
@@ -21,21 +20,18 @@ def process_image(args):
     img_path, image_size = args
 
     try:
-        # Load image with OpenCV (fast, SIMD-optimized)
-        img = cv2.imread(str(img_path))
-        if img is None:
-            return None
-
-        # Convert BGR to RGB
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-        # Resize (OpenCV uses SIMD optimizations)
-        img = cv2.resize(img, (image_size, image_size), interpolation=cv2.INTER_LINEAR)
+        # Load and resize with PIL
+        img = Image.open(img_path).convert('RGB')
+        img = img.resize((image_size, image_size), Image.BILINEAR)
 
         # Convert to tensor: (H, W, C) -> (C, H, W), normalize to [0, 1]
-        img_tensor = torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
+        img_tensor = torch.from_numpy(
+            torch.ByteTensor(torch.ByteStorage.from_buffer(img.tobytes()))
+            .view(image_size, image_size, 3)
+            .numpy()
+        ).permute(2, 0, 1).float() / 255.0
 
-        # Generate all rotations
+        # Generate all rotations using torch.rot90
         rotated_tensors = []
         for rotation_deg in ROTATIONS:
             if rotation_deg == 0:
