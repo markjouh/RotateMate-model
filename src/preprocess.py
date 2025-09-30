@@ -4,6 +4,7 @@
 import argparse
 import yaml
 import torch
+import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 from multiprocessing import Pool
@@ -16,7 +17,10 @@ ROTATIONS = [0, 90, 180, 270]
 
 
 def process_image(args):
-    """Process a single image: load, resize, apply all rotations."""
+    """Process a single image: load, resize, apply all rotations.
+
+    Returns numpy arrays to avoid torch tensor pickling issues.
+    """
     img_path, image_size = args
 
     try:
@@ -24,28 +28,25 @@ def process_image(args):
         img = Image.open(img_path).convert('RGB')
         img = img.resize((image_size, image_size), Image.BILINEAR)
 
-        # Convert to tensor: (H, W, C) -> (C, H, W), normalize to [0, 1]
-        img_tensor = torch.from_numpy(
-            torch.ByteTensor(torch.ByteStorage.from_buffer(img.tobytes()))
-            .view(image_size, image_size, 3)
-            .numpy()
-        ).permute(2, 0, 1).float() / 255.0
+        # Convert to numpy array: (H, W, C) -> (C, H, W), float32 in [0, 1]
+        img_np = np.array(img, dtype=np.float32) / 255.0
+        img_np = np.transpose(img_np, (2, 0, 1))  # CHW format
 
-        # Generate all rotations using torch.rot90
-        rotated_tensors = []
+        # Generate all rotations using numpy
+        rotated_arrays = []
         for rotation_deg in ROTATIONS:
             if rotation_deg == 0:
-                rotated = img_tensor
+                rotated = img_np
             elif rotation_deg == 90:
-                rotated = torch.rot90(img_tensor, k=1, dims=(1, 2))
+                rotated = np.rot90(img_np, k=1, axes=(1, 2))
             elif rotation_deg == 180:
-                rotated = torch.rot90(img_tensor, k=2, dims=(1, 2))
+                rotated = np.rot90(img_np, k=2, axes=(1, 2))
             elif rotation_deg == 270:
-                rotated = torch.rot90(img_tensor, k=3, dims=(1, 2))
+                rotated = np.rot90(img_np, k=3, axes=(1, 2))
 
-            rotated_tensors.append(rotated)
+            rotated_arrays.append(rotated.copy())
 
-        return (img_path.stem, rotated_tensors)
+        return (img_path.stem, rotated_arrays)
 
     except Exception:
         return None
@@ -90,11 +91,12 @@ def preprocess_split_cpu(image_dir, output_dir, image_size=256, batch_size=4096,
                 failed_count += 1
                 continue
 
-            img_id, rotated_tensors = result
+            img_id, rotated_arrays = result
 
-            # Add to current batch for each rotation
+            # Convert numpy arrays to torch tensors and add to batch
             for rot_idx, rotation_deg in enumerate(ROTATIONS):
-                batch_data[rotation_deg]['images'].append(rotated_tensors[rot_idx])
+                img_tensor = torch.from_numpy(rotated_arrays[rot_idx])
+                batch_data[rotation_deg]['images'].append(img_tensor)
                 batch_data[rotation_deg]['ids'].append(img_id)
 
             # Save batch when full
