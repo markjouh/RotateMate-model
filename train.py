@@ -105,13 +105,18 @@ def main():
         image_size = data_cfg.get('image_size', 256)
         extracted_dir = Path(data_cfg['extracted_dir'])
 
+        preprocess_cfg = data_cfg.get('preprocessing', {})
+        preprocess_batch_size = preprocess_cfg.get('batch_size', 512)
+        preprocess_workers = preprocess_cfg.get('num_workers', 8)
+
         for split_name in ['train2017', 'val2017']:
             split_path = extracted_dir / split_name
             preprocessed_dir = extracted_dir / f"{split_name}_preprocessed"
 
             if split_path.exists() and not (preprocessed_dir.exists() and any(preprocessed_dir.glob("*.pt"))):
                 logger.info(f"Preprocessing {split_name}")
-                preprocess_split_gpu(split_path, preprocessed_dir, rotations, image_size, batch_size=512)
+                preprocess_split_gpu(split_path, preprocessed_dir, image_size=image_size,
+                                   batch_size=preprocess_batch_size, num_workers=preprocess_workers)
 
         # Create dataloaders once
         splits = verify_dataset(data_cfg['extracted_dir'])
@@ -229,13 +234,18 @@ def main():
         image_size = data_cfg.get('image_size', 256)
         extracted_dir = Path(data_cfg['extracted_dir'])
 
+        preprocess_cfg = data_cfg.get('preprocessing', {})
+        preprocess_batch_size = preprocess_cfg.get('batch_size', 512)
+        preprocess_workers = preprocess_cfg.get('num_workers', 8)
+
         for split_name in ['train2017', 'val2017']:
             split_path = extracted_dir / split_name
             preprocessed_dir = extracted_dir / f"{split_name}_preprocessed"
 
             if split_path.exists() and not (preprocessed_dir.exists() and any(preprocessed_dir.glob("*.pt"))):
                 logger.info(f"Preprocessing {split_name}")
-                preprocess_split_gpu(split_path, preprocessed_dir, rotations, image_size, batch_size=512)
+                preprocess_split_gpu(split_path, preprocessed_dir, image_size=image_size,
+                                   batch_size=preprocess_batch_size, num_workers=preprocess_workers)
 
         # Step 2: Train
         best_model_path = None

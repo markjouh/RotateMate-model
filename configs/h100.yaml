@@ -13,6 +13,10 @@ data:
   val_split: "val2017"
   test_split: "test2017"
 
+  preprocessing:
+    batch_size: 512
+    num_workers: 16  # 26 vCPUs available
+
 model:
   name: "mobilenetv4_conv_small"
   pretrained: true
