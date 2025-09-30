@@ -14,9 +14,10 @@ import argparse
 
 # Parse arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('--epochs', type=int, default=50, help='Number of epochs')
+parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
 parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
 parser.add_argument('--patience', type=int, default=5, help='Early stopping patience')
+parser.add_argument('--workers', type=int, default=4, help='Number of data loader workers')
 args = parser.parse_args()
 
 # Config
@@ -24,8 +25,8 @@ BATCH_SIZE = 256
 EPOCHS = args.epochs
 LR = args.lr
 PATIENCE = args.patience
+NUM_WORKERS = args.workers
 IMG_SIZE = 224  # Match model's training resolution
-NUM_WORKERS = 26
 
 # Dataset
 class RotationDataset(Dataset):
