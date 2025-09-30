@@ -30,10 +30,17 @@ def preprocess_split_gpu(image_dir, output_dir, rotations, image_size, batch_siz
         batch_images = []
         batch_ids = []
 
-        # Load batch to CPU
+        # Load and resize each image to same size
         for img_path in batch_paths:
             try:
                 img = K.io.load_image(str(img_path), K.io.ImageLoadType.RGB32)
+                # Resize to target size immediately
+                img = K.geometry.transform.resize(
+                    img.unsqueeze(0),
+                    (image_size, image_size),
+                    interpolation='bilinear',
+                    antialias=True
+                ).squeeze(0)
                 batch_images.append(img)
                 batch_ids.append(img_path.stem)
             except Exception as e:
@@ -45,14 +52,6 @@ def preprocess_split_gpu(image_dir, output_dir, rotations, image_size, batch_siz
 
         # Stack and move to GPU
         images = torch.stack(batch_images).to(device)
-
-        # Resize to target size (letterbox with padding)
-        images = K.geometry.transform.resize(
-            images,
-            (image_size, image_size),
-            interpolation='bilinear',
-            antialias=True
-        )
 
         # Generate all rotations for this batch
         for rotation_deg in rotations:
