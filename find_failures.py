@@ -16,10 +16,11 @@ def parse_args():
     parser.add_argument('--batch-size', type=int, default=512, help='Batch size')
     parser.add_argument('--workers', type=int, default=16, help='Number of data loader workers')
     parser.add_argument('--output-dir', type=str, default='failures', help='Output directory for failed images')
+    parser.add_argument('--max-failures', type=int, default=500, help='Maximum number of failures to save per dataset')
     return parser.parse_args()
 
 
-def find_failures(model, loader, device, dataset_name, output_dir):
+def find_failures(model, loader, device, dataset_name, output_dir, max_failures=None):
     """Find and save images where the model prediction is incorrect."""
     model.eval()
     num_failures = 0
@@ -61,6 +62,10 @@ def find_failures(model, loader, device, dataset_name, output_dir):
                 output_name = f"{img_name}_true{true_rot}_pred{pred_rot}.png"
                 save_image(img_denorm, dataset_output_dir / output_name)
 
+                # Stop if we've saved max_failures
+                if max_failures is not None and num_failures >= max_failures:
+                    return num_failures
+
             sample_idx += len(imgs)
 
     return num_failures
@@ -79,20 +84,20 @@ def main():
     print(f"Loaded model from {args.checkpoint}")
 
     # Datasets
-    train_dataset = Dataset("data/train2017", img_size=img_size)
-    val_dataset = Dataset("data/val2017", img_size=img_size)
+    train_dataset = Dataset("data/train2017", img_size=img_size, augment=True)
+    val_dataset = Dataset("data/val2017", img_size=img_size, augment=False)
 
     train_loader = DataLoader(train_dataset, args.batch_size, num_workers=args.workers, pin_memory=True)
     val_loader = DataLoader(val_dataset, args.batch_size, num_workers=args.workers, pin_memory=True)
 
     # Find failures
-    print(f"\nFinding failures on train2017...")
-    train_failures = find_failures(model, train_loader, device, "train2017", args.output_dir)
-    print(f"Found {train_failures} failures on train2017 ({100.0 * train_failures / len(train_dataset):.2f}%)")
+    print(f"\nFinding failures on train2017 (with augmentation, max {args.max_failures} failures)...")
+    train_failures = find_failures(model, train_loader, device, "train2017", args.output_dir, max_failures=args.max_failures)
+    print(f"Found {train_failures} failures on train2017")
 
-    print(f"\nFinding failures on val2017...")
-    val_failures = find_failures(model, val_loader, device, "val2017", args.output_dir)
-    print(f"Found {val_failures} failures on val2017 ({100.0 * val_failures / len(val_dataset):.2f}%)")
+    print(f"\nFinding failures on val2017 (max {args.max_failures} failures)...")
+    val_failures = find_failures(model, val_loader, device, "val2017", args.output_dir, max_failures=args.max_failures)
+    print(f"Found {val_failures} failures on val2017")
 
     print(f"\nFailed images saved to: {args.output_dir}/")
 
