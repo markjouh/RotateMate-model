@@ -14,8 +14,8 @@ from train import Dataset
 def parse_args():
     parser = argparse.ArgumentParser(description='Find model failures')
     parser.add_argument('--checkpoint', type=str, default='rotation_model.pth', help='Path to model checkpoint')
-    parser.add_argument('--batch-size', type=int, default=256, help='Batch size')
-    parser.add_argument('--workers', type=int, default=4, help='Number of data loader workers')
+    parser.add_argument('--batch-size', type=int, default=512, help='Batch size')
+    parser.add_argument('--workers', type=int, default=16, help='Number of data loader workers')
     parser.add_argument('--output-dir', type=str, default='failures', help='Output directory for failed images')
     return parser.parse_args()
 
