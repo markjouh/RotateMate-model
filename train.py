@@ -11,7 +11,6 @@ from torchvision.io import read_image, ImageReadMode
 import timm
 from tqdm import tqdm
 
-from export import export_to_coreml
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train rotation classifier')
@@ -170,10 +169,6 @@ def main():
         print(f"Saved best model (val loss: {best_val_loss:.4f}): rotation_model.pth")
     else:
         print("Warning: No model was saved (training may have failed immediately)")
-
-    # Export to CoreML
-    export_to_coreml(model, img_size)
-    print("Exported: RotationClassifier.mlpackage (INT8 quantized)")
 
 
 if __name__ == "__main__":
