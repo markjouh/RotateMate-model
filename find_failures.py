@@ -1,10 +1,9 @@
 import argparse
 from pathlib import Path
-import shutil
 
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
+from torchvision.utils import save_image
 import timm
 from tqdm import tqdm
 
@@ -20,13 +19,22 @@ def parse_args():
     return parser.parse_args()
 
 
-def find_failures(model, loader, device, dataset_name, output_dir, batch_size):
+def find_failures(model, loader, device, dataset_name, output_dir):
     """Find and save images where the model prediction is incorrect."""
     model.eval()
-    failures = []
+    num_failures = 0
 
+    # ImageNet normalization params for denormalization
+    IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+    IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+
+    # Save failed images to output directory
+    dataset_output_dir = Path(output_dir) / dataset_name
+    dataset_output_dir.mkdir(parents=True, exist_ok=True)
+
+    sample_idx = 0
     with torch.no_grad():
-        for batch_idx, (imgs, labels) in enumerate(tqdm(loader, desc=f"Testing {dataset_name}")):
+        for imgs, labels in tqdm(loader, desc=f"Testing {dataset_name}"):
             imgs, labels = imgs.to(device), labels.to(device)
             outputs = model(imgs)
             _, predicted = outputs.max(1)
@@ -35,30 +43,27 @@ def find_failures(model, loader, device, dataset_name, output_dir, batch_size):
             incorrect = predicted != labels
             incorrect_indices = incorrect.nonzero(as_tuple=True)[0]
 
-            # Store failure information
+            # Save failure images
             for idx in incorrect_indices:
-                global_idx = batch_idx * batch_size + idx.item()
-                failures.append({
-                    'idx': global_idx,
-                    'true_label': labels[idx].item(),
-                    'pred_label': predicted[idx].item()
-                })
+                num_failures += 1
+                true_rot = labels[idx].item()
+                pred_rot = predicted[idx].item()
 
-    # Save failed images to output directory
-    dataset_output_dir = Path(output_dir) / dataset_name
-    dataset_output_dir.mkdir(parents=True, exist_ok=True)
+                # Denormalize the processed image
+                img_tensor = imgs[idx].cpu()
+                img_denorm = img_tensor * IMAGENET_STD + IMAGENET_MEAN
+                img_denorm = img_denorm.clamp(0, 1)
 
-    for failure in failures:
-        img_path = loader.dataset.img_paths[failure['idx']]
-        true_rot = failure['true_label']
-        pred_rot = failure['pred_label']
+                # Save processed image with descriptive name
+                global_idx = sample_idx + idx.item()
+                img_path = loader.dataset.img_paths[global_idx]
+                img_name = Path(img_path).stem
+                output_name = f"{img_name}_true{true_rot}_pred{pred_rot}.png"
+                save_image(img_denorm, dataset_output_dir / output_name)
 
-        # Copy image with descriptive name
-        img_name = Path(img_path).stem
-        output_name = f"{img_name}_true{true_rot}_pred{pred_rot}.jpg"
-        shutil.copy(img_path, dataset_output_dir / output_name)
+            sample_idx += len(imgs)
 
-    return failures
+    return num_failures
 
 
 def main():
@@ -82,12 +87,12 @@ def main():
 
     # Find failures
     print(f"\nFinding failures on train2017...")
-    train_failures = find_failures(model, train_loader, device, "train2017", args.output_dir, args.batch_size)
-    print(f"Found {len(train_failures)} failures on train2017 ({100.0 * len(train_failures) / len(train_dataset):.2f}%)")
+    train_failures = find_failures(model, train_loader, device, "train2017", args.output_dir)
+    print(f"Found {train_failures} failures on train2017 ({100.0 * train_failures / len(train_dataset):.2f}%)")
 
     print(f"\nFinding failures on val2017...")
-    val_failures = find_failures(model, val_loader, device, "val2017", args.output_dir, args.batch_size)
-    print(f"Found {len(val_failures)} failures on val2017 ({100.0 * len(val_failures) / len(val_dataset):.2f}%)")
+    val_failures = find_failures(model, val_loader, device, "val2017", args.output_dir)
+    print(f"Found {val_failures} failures on val2017 ({100.0 * val_failures / len(val_dataset):.2f}%)")
 
     print(f"\nFailed images saved to: {args.output_dir}/")
 
