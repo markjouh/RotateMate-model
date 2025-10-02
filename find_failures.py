@@ -20,7 +20,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def find_failures(model, loader, device, dataset_name, output_dir):
+def find_failures(model, loader, device, dataset_name, output_dir, batch_size):
     """Find and save images where the model prediction is incorrect."""
     model.eval()
     failures = []
@@ -37,7 +37,7 @@ def find_failures(model, loader, device, dataset_name, output_dir):
 
             # Store failure information
             for idx in incorrect_indices:
-                global_idx = batch_idx * loader.batch_size + idx.item()
+                global_idx = batch_idx * batch_size + idx.item()
                 failures.append({
                     'idx': global_idx,
                     'true_label': labels[idx].item(),
@@ -73,20 +73,20 @@ def main():
 
     print(f"Loaded model from {args.checkpoint}")
 
-    # Datasets (no augmentation for testing)
-    train_dataset = Dataset("data/train2017", img_size=img_size, augment=True)
-    val_dataset = Dataset("data/val2017", img_size=img_size, augment=False)
+    # Datasets
+    train_dataset = Dataset("data/train2017", img_size=img_size)
+    val_dataset = Dataset("data/val2017", img_size=img_size)
 
     train_loader = DataLoader(train_dataset, args.batch_size, num_workers=args.workers, pin_memory=True)
     val_loader = DataLoader(val_dataset, args.batch_size, num_workers=args.workers, pin_memory=True)
 
     # Find failures
     print(f"\nFinding failures on train2017...")
-    train_failures = find_failures(model, train_loader, device, "train2017", args.output_dir)
+    train_failures = find_failures(model, train_loader, device, "train2017", args.output_dir, args.batch_size)
     print(f"Found {len(train_failures)} failures on train2017 ({100.0 * len(train_failures) / len(train_dataset):.2f}%)")
 
     print(f"\nFinding failures on val2017...")
-    val_failures = find_failures(model, val_loader, device, "val2017", args.output_dir)
+    val_failures = find_failures(model, val_loader, device, "val2017", args.output_dir, args.batch_size)
     print(f"Found {len(val_failures)} failures on val2017 ({100.0 * len(val_failures) / len(val_dataset):.2f}%)")
 
     print(f"\nFailed images saved to: {args.output_dir}/")
