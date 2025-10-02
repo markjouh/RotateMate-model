@@ -56,6 +56,11 @@ def find_failures(model, loader, device, dataset_name, output_dir, max_failures=
                 true_rot = labels[idx].item()
                 pred_rot = predicted[idx].item()
 
+                # Get confidence scores
+                probs = torch.softmax(outputs[idx], dim=0)
+                pred_conf = probs[pred_rot].item()
+                true_conf = probs[true_rot].item()
+
                 # Denormalize the processed image
                 img_tensor = imgs[idx].cpu()
                 img_denorm = img_tensor * IMAGENET_STD + IMAGENET_MEAN
@@ -65,7 +70,7 @@ def find_failures(model, loader, device, dataset_name, output_dir, max_failures=
                 global_idx = sample_idx + idx.item()
                 img_path = loader.dataset.img_paths[global_idx]
                 img_name = Path(img_path).stem
-                output_name = f"{img_name}_true{true_rot}_pred{pred_rot}.png"
+                output_name = f"{img_name}_true{true_rot}_{true_conf:.3f}_pred{pred_rot}_{pred_conf:.3f}.png"
                 save_image(img_denorm, dataset_output_dir / output_name)
 
                 # Stop if we've saved max_failures
@@ -90,8 +95,8 @@ def main():
     print(f"Loaded model from {args.checkpoint}")
 
     # Datasets
-    train_dataset = Dataset("data/train2017", img_size=img_size, augment=True)
-    val_dataset = Dataset("data/val2017", img_size=img_size, augment=False)
+    train_dataset = Dataset("data/train2017", img_size=img_size, augment=True, fixed_rotation=False)
+    val_dataset = Dataset("data/val2017", img_size=img_size, augment=False, fixed_rotation=True)
 
     train_loader = DataLoader(train_dataset, args.batch_size, num_workers=args.workers, pin_memory=True)
     val_loader = DataLoader(val_dataset, args.batch_size, num_workers=args.workers, pin_memory=True)
