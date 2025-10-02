@@ -31,6 +31,12 @@ def find_failures(model, loader, device, dataset_name, output_dir, max_failures=
 
     # Save failed images to output directory
     dataset_output_dir = Path(output_dir) / dataset_name
+
+    # Clear existing failures
+    if dataset_output_dir.exists():
+        for f in dataset_output_dir.glob("*.png"):
+            f.unlink()
+
     dataset_output_dir.mkdir(parents=True, exist_ok=True)
 
     sample_idx = 0
