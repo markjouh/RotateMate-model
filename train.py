@@ -14,9 +14,9 @@ from tqdm import tqdm
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train rotation classifier')
-    parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
-    parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
-    parser.add_argument('--patience', type=int, default=5, help='Early stopping patience')
+    parser.add_argument('--epochs', type=int, default=20, help='Number of epochs')
+    parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
+    parser.add_argument('--patience', type=int, default=10, help='Early stopping patience')
     parser.add_argument('--workers', type=int, default=4, help='Number of data loader workers')
     parser.add_argument('--batch-size', type=int, default=256, help='Batch size')
     return parser.parse_args()
@@ -123,7 +123,7 @@ def main():
     print(f"Training on {len(train_dataset)} images, validating on {len(val_dataset)} images")
 
     # Model
-    model = timm.create_model("mobilenetv4_conv_small.e2400_r224_in1k", pretrained=False, num_classes=4)
+    model = timm.create_model("mobilenetv4_conv_small.e2400_r224_in1k", pretrained=True, num_classes=4)
     model = model.to(device)
 
     # Training setup
