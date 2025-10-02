@@ -79,14 +79,13 @@ class Dataset(TorchDataset):
         if rotation > 0:
             img = img.rot90(rotation, [1, 2])
 
-        img = letterbox_resize(img, self.img_size)
-
         if self.augment:
             img = apply_color_jitter(img, brightness=0.1, contrast=0.1, saturation=0.1)
             # Add slight Gaussian noise
             img = img + torch.randn_like(img) * 0.02
             img = img.clamp(0, 1)
 
+        img = letterbox_resize(img, self.img_size)
         img = self.normalize(img)
         return img, rotation
 
