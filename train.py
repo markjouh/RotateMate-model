@@ -22,39 +22,43 @@ def parse_args():
     return parser.parse_args()
 
 
-def letterbox_resize(img, size):
-    """Resize image with letterboxing to maintain aspect ratio."""
+def resize_to_fit(img, size):
+    """Resize image to fit within size x size, maintaining aspect ratio."""
     c, h, w = img.shape
     scale = min(size / w, size / h)
     new_w, new_h = int(w * scale), int(h * scale)
-
     img = F.interpolate(img.unsqueeze(0), size=(new_h, new_w), mode='bilinear', align_corners=False).squeeze(0)
+    return img
 
-    pad_h = size - new_h
-    pad_w = size - new_w
+
+def apply_augmentation(img, brightness=0.1, contrast=0.1, saturation=0.1, noise=0.02):
+    """Fast augmentation using in-place operations where possible."""
+    # Brightness
+    img = img * (1.0 + random.uniform(-brightness, brightness))
+
+    # Contrast
+    mean = img.mean(dim=[1, 2], keepdim=True)
+    img = (img - mean) * (1.0 + random.uniform(-contrast, contrast)) + mean
+
+    # Saturation
+    gray = img.mean(dim=0, keepdim=True)
+    img = gray + (img - gray) * (1.0 + random.uniform(-saturation, saturation))
+
+    # Gaussian noise
+    img = img + torch.randn_like(img) * noise
+
+    return img.clamp(0, 1)
+
+
+def pad_to_square(img, size):
+    """Pad image to exactly size x size with black borders."""
+    c, h, w = img.shape
+    pad_h = size - h
+    pad_w = size - w
     pad_top = pad_h // 2
     pad_left = pad_w // 2
     img = F.pad(img, (pad_left, pad_w - pad_left, pad_top, pad_h - pad_top), value=0)
     return img
-
-
-def apply_color_jitter(img, brightness=0.1, contrast=0.1, saturation=0.1, hue=0.05):
-    """Apply color jitter using torch operations."""
-    # Brightness
-    brightness_factor = 1.0 + random.uniform(-brightness, brightness)
-    img = img * brightness_factor
-
-    # Contrast
-    contrast_factor = 1.0 + random.uniform(-contrast, contrast)
-    mean = img.mean(dim=[1, 2], keepdim=True)
-    img = (img - mean) * contrast_factor + mean
-
-    # Saturation
-    saturation_factor = 1.0 + random.uniform(-saturation, saturation)
-    gray = img.mean(dim=0, keepdim=True)
-    img = gray + (img - gray) * saturation_factor
-
-    return img.clamp(0, 1)
 
 
 class Dataset(TorchDataset):
@@ -79,13 +83,15 @@ class Dataset(TorchDataset):
         if rotation > 0:
             img = img.rot90(rotation, [1, 2])
 
-        if self.augment:
-            img = apply_color_jitter(img, brightness=0.1, contrast=0.1, saturation=0.1)
-            # Add slight Gaussian noise
-            img = img + torch.randn_like(img) * 0.02
-            img = img.clamp(0, 1)
+        # Resize first to reduce computation
+        img = resize_to_fit(img, self.img_size)
 
-        img = letterbox_resize(img, self.img_size)
+        # Apply augmentation on smaller image
+        if self.augment:
+            img = apply_augmentation(img, brightness=0.1, contrast=0.1, saturation=0.1, noise=0.02)
+
+        # Pad to exact square
+        img = pad_to_square(img, self.img_size)
         img = self.normalize(img)
         return img, rotation
 
