@@ -78,11 +78,10 @@ class RotationDataset(Dataset):
         if rotation > 0:
             img = img.rot90(rotation, [1, 2])
 
-        img = letterbox_resize(img, self.img_size)
-
         if self.augment:
             img = apply_augmentation(img)
 
+        img = letterbox_resize(img, self.img_size)
         img = self.normalize(img)
         return img, rotation
 
@@ -138,9 +137,15 @@ def export_to_coreml(model, img_size, output_path="RotationClassifier.mlpackage"
     example_input = torch.randn(1, 3, img_size, img_size)
     traced_model = torch.jit.trace(model, example_input)
 
-    # ImageNet normalization for CoreML
-    scale = 1 / (0.226 * 255.0)
-    bias = [-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225]
+    # ImageNet normalization for CoreML (per-channel)
+    # Training uses: (pixel/255 - mean) / std
+    # CoreML applies: pixel * scale + bias
+    # Therefore: scale = 1/(255*std), bias = -mean/std
+    IMAGENET_MEAN = [0.485, 0.456, 0.406]
+    IMAGENET_STD = [0.229, 0.224, 0.225]
+
+    scale = [1.0 / (255.0 * s) for s in IMAGENET_STD]
+    bias = [-m / s for m, s in zip(IMAGENET_MEAN, IMAGENET_STD)]
 
     mlmodel = ct.convert(
         traced_model,
@@ -178,7 +183,12 @@ def main():
     # Training setup
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+
+    # Warmup for 10% of epochs, then cosine annealing
+    warmup_epochs = max(1, args.epochs // 10)
+    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, total_iters=warmup_epochs)
+    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs - warmup_epochs)
+    scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_epochs])
 
     best_val_loss = float('inf')
     best_model_state = None
@@ -194,7 +204,7 @@ def main():
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            best_model_state = model.state_dict().copy()
+            best_model_state = model.state_dict()
             patience_counter = 0
             print(f"Epoch {epoch+1}: Train Acc {train_acc:.2f}%, Val Acc {val_acc:.2f}%, Val Loss {val_loss:.4f}, LR {lr:.2e} *** BEST ***")
         else:
@@ -207,9 +217,12 @@ def main():
         scheduler.step()
 
     # Save best model
-    model.load_state_dict(best_model_state)
-    torch.save(best_model_state, "rotation_model.pth")
-    print(f"Saved best model (val loss: {best_val_loss:.4f}): rotation_model.pth")
+    if best_model_state is not None:
+        model.load_state_dict(best_model_state)
+        torch.save(best_model_state, "rotation_model.pth")
+        print(f"Saved best model (val loss: {best_val_loss:.4f}): rotation_model.pth")
+    else:
+        print("Warning: No model was saved (training may have failed immediately)")
 
     # Export to CoreML
     export_to_coreml(model, img_size)
