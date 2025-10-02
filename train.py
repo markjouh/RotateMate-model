@@ -4,14 +4,14 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset as TorchDataset, DataLoader
 from torchvision import transforms
 from torchvision.io import read_image, ImageReadMode
 import timm
-import coremltools as ct
 from tqdm import tqdm
 
+from transforms import letterbox_resize, apply_augmentation
+from export import export_to_coreml
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train rotation classifier')
@@ -23,40 +23,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def letterbox_resize(img, size):
-    """Resize image with letterboxing to maintain aspect ratio."""
-    c, h, w = img.shape
-    scale = min(size / w, size / h)
-    new_w, new_h = int(w * scale), int(h * scale)
-
-    img = F.interpolate(img.unsqueeze(0), size=(new_h, new_w), mode='bilinear', align_corners=False).squeeze(0)
-
-    pad_h = size - new_h
-    pad_w = size - new_w
-    pad_top = pad_h // 2
-    pad_left = pad_w // 2
-    img = F.pad(img, (pad_left, pad_w - pad_left, pad_top, pad_h - pad_top), value=0)
-    return img
-
-
-def apply_augmentation(img):
-    """Apply color jitter and Gaussian noise augmentation."""
-    brightness = 1.0 + (random.random() * 0.2 - 0.1)
-    contrast = 1.0 + (random.random() * 0.2 - 0.1)
-    saturation = 1.0 + (random.random() * 0.2 - 0.1)
-
-    img = img * brightness
-    mean = img.mean(dim=0, keepdim=True)
-    img = (img - mean) * contrast + mean
-
-    gray = 0.299 * img[0] + 0.587 * img[1] + 0.114 * img[2]
-    img = gray.unsqueeze(0) + (img - gray.unsqueeze(0)) * saturation
-    img = img + torch.randn_like(img) * 0.02
-
-    return img.clamp(0, 1)
-
-
-class RotationDataset(Dataset):
+class Dataset(TorchDataset):
     """Dataset for rotation classification with on-the-fly augmentation."""
 
     IMAGENET_MEAN = [0.485, 0.456, 0.406]
@@ -131,46 +98,14 @@ def validate(model, loader, criterion, device):
     return 100.0 * correct / total, total_loss / len(loader)
 
 
-def export_to_coreml(model, img_size, output_path="RotationClassifier.mlpackage"):
-    """Export model to CoreML with INT8 quantization."""
-    model.eval().cpu()
-    example_input = torch.randn(1, 3, img_size, img_size)
-    traced_model = torch.jit.trace(model, example_input)
-
-    # ImageNet normalization for CoreML (per-channel)
-    # Training uses: (pixel/255 - mean) / std
-    # CoreML applies: pixel * scale + bias
-    # Therefore: scale = 1/(255*std), bias = -mean/std
-    IMAGENET_MEAN = [0.485, 0.456, 0.406]
-    IMAGENET_STD = [0.229, 0.224, 0.225]
-
-    scale = [1.0 / (255.0 * s) for s in IMAGENET_STD]
-    bias = [-m / s for m, s in zip(IMAGENET_MEAN, IMAGENET_STD)]
-
-    mlmodel = ct.convert(
-        traced_model,
-        inputs=[ct.ImageType(name="input", shape=(1, 3, img_size, img_size), scale=scale, bias=bias)],
-        compute_units=ct.ComputeUnit.ALL,
-        minimum_deployment_target=ct.target.iOS26,
-    )
-
-    mlmodel.save(output_path)
-
-    # INT8 quantization
-    op_config = ct.optimize.coreml.OpLinearQuantizerConfig(mode="linear_symmetric")
-    config = ct.optimize.coreml.OptimizationConfig(global_config=op_config)
-    mlmodel_compressed = ct.optimize.coreml.linear_quantize_weights(mlmodel, config=config)
-    mlmodel_compressed.save(output_path)
-
-
 def main():
     args = parse_args()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     img_size = 224
 
     # Data
-    train_dataset = RotationDataset("data/train2017", img_size=img_size, augment=True)
-    val_dataset = RotationDataset("data/val2017", img_size=img_size, augment=False)
+    train_dataset = Dataset("data/train2017", img_size=img_size, augment=True)
+    val_dataset = Dataset("data/val2017", img_size=img_size, augment=False)
     train_loader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=args.workers, pin_memory=True)
     val_loader = DataLoader(val_dataset, args.batch_size, num_workers=args.workers, pin_memory=True)
 
