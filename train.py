@@ -38,15 +38,35 @@ def letterbox_resize(img, size):
     return img
 
 
+def apply_color_jitter(img, brightness=0.1, contrast=0.1, saturation=0.1, hue=0.05):
+    """Apply color jitter using torch operations."""
+    # Brightness
+    brightness_factor = 1.0 + random.uniform(-brightness, brightness)
+    img = img * brightness_factor
+
+    # Contrast
+    contrast_factor = 1.0 + random.uniform(-contrast, contrast)
+    mean = img.mean(dim=[1, 2], keepdim=True)
+    img = (img - mean) * contrast_factor + mean
+
+    # Saturation
+    saturation_factor = 1.0 + random.uniform(-saturation, saturation)
+    gray = img.mean(dim=0, keepdim=True)
+    img = gray + (img - gray) * saturation_factor
+
+    return img.clamp(0, 1)
+
+
 class Dataset(TorchDataset):
     """Dataset for rotation classification."""
 
     IMAGENET_MEAN = [0.485, 0.456, 0.406]
     IMAGENET_STD = [0.229, 0.224, 0.225]
 
-    def __init__(self, img_dir, img_size=224):
+    def __init__(self, img_dir, img_size=224, augment=True):
         self.img_paths = [str(p) for p in Path(img_dir).glob("*.jpg")]
         self.img_size = img_size
+        self.augment = augment
         self.normalize = transforms.Normalize(self.IMAGENET_MEAN, self.IMAGENET_STD)
 
     def __len__(self):
@@ -60,6 +80,13 @@ class Dataset(TorchDataset):
             img = img.rot90(rotation, [1, 2])
 
         img = letterbox_resize(img, self.img_size)
+
+        if self.augment:
+            img = apply_color_jitter(img, brightness=0.1, contrast=0.1, saturation=0.1)
+            # Add slight Gaussian noise
+            img = img + torch.randn_like(img) * 0.02
+            img = img.clamp(0, 1)
+
         img = self.normalize(img)
         return img, rotation
 
@@ -115,8 +142,8 @@ def main():
     img_size = 224
 
     # Data
-    train_dataset = Dataset("data/train2017", img_size=img_size)
-    val_dataset = Dataset("data/val2017", img_size=img_size)
+    train_dataset = Dataset("data/train2017", img_size=img_size, augment=True)
+    val_dataset = Dataset("data/val2017", img_size=img_size, augment=False)
     train_loader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=args.workers, pin_memory=True)
     val_loader = DataLoader(val_dataset, args.batch_size, num_workers=args.workers, pin_memory=True)
 
