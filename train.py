@@ -123,7 +123,7 @@ def main():
     print(f"Training on {len(train_dataset)} images, validating on {len(val_dataset)} images")
 
     # Model
-    model = timm.create_model("mobilenetv4_conv_small.e2400_r224_in1k", pretrained=True, num_classes=4)
+    model = timm.create_model("mobilenetv4_conv_small.e2400_r224_in1k", pretrained=False, num_classes=4)
     model = model.to(device)
 
     # Training setup

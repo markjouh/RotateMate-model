@@ -14,7 +14,6 @@ Classify image rotation into 4 classes: 0°, 90°, 180°, 270°
 ## Data
 - **Training**: COCO train2017 (118k images)
 - **Validation**: COCO val2017 (5k images)
-- Random rotation, color jitter, Gaussian noise for each image on each epoch
 
 ## Setup
 
