@@ -49,21 +49,23 @@ class Dataset(TorchDataset):
     IMAGENET_MEAN = [0.485, 0.456, 0.406]
     IMAGENET_STD = [0.229, 0.224, 0.225]
 
-    def __init__(self, img_dir, img_size=224, augment=True):
+    def __init__(self, img_dir, img_size=224, augment=True, fixed_rotation=False):
         self.img_paths = [str(p) for p in Path(img_dir).glob("*.jpg")]
         self.img_size = img_size
         self.augment = augment
+        self.fixed_rotation = fixed_rotation
         self.normalize = transforms.Normalize(self.IMAGENET_MEAN, self.IMAGENET_STD)
 
     def __len__(self):
-        return len(self.img_paths) * 4  # Always 4 rotations per image
+        return len(self.img_paths)
 
     def __getitem__(self, idx):
-        # Each image has 4 variants (idx 0-3 is image 0 at 0°/90°/180°/270°)
-        img_idx = idx // 4
-        rotation = idx % 4
+        img = read_image(self.img_paths[idx], ImageReadMode.RGB).float() / 255.0
 
-        img = read_image(self.img_paths[img_idx], ImageReadMode.RGB).float() / 255.0
+        if self.fixed_rotation:
+            rotation = idx % 4
+        else:
+            rotation = random.choice([0, 1, 2, 3])
 
         if rotation > 0:
             img = img.rot90(rotation, [1, 2])
@@ -145,8 +147,8 @@ def main():
     img_size = 224
 
     # Data
-    train_dataset = Dataset("data/train2017", img_size=img_size, augment=True)
-    val_dataset = Dataset("data/val2017", img_size=img_size, augment=False)
+    train_dataset = Dataset("data/train2017", img_size=img_size, augment=True, fixed_rotation=False)
+    val_dataset = Dataset("data/val2017", img_size=img_size, augment=False, fixed_rotation=True)
     train_loader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=args.workers, pin_memory=True)
     val_loader = DataLoader(val_dataset, args.batch_size, num_workers=args.workers, pin_memory=True)
 
