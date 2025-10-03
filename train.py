@@ -31,7 +31,29 @@ def resize_to_fit(img, size):
     return img
 
 
-def apply_augmentation(img, brightness=0.1, contrast=0.1, saturation=0.1, noise=0.02):
+def random_resized_crop(img, size, scale=(0.85, 1.0)):
+    """Randomly crop and resize to size x size."""
+    c, h, w = img.shape
+
+    # Random scale factor
+    scale_factor = random.uniform(scale[0], scale[1])
+    target_h = int(h * scale_factor)
+    target_w = int(w * scale_factor)
+
+    # Random crop position
+    top = random.randint(0, h - target_h) if h > target_h else 0
+    left = random.randint(0, w - target_w) if w > target_w else 0
+
+    # Crop
+    img = img[:, top:top+target_h, left:left+target_w]
+
+    # Resize to target size
+    img = F.interpolate(img.unsqueeze(0), size=(size, size), mode='bilinear', align_corners=False).squeeze(0)
+
+    return img
+
+
+def apply_augmentation(img, brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05):
     """Fast augmentation using in-place operations where possible."""
     # Brightness
     img = img * (1.0 + random.uniform(-brightness, brightness))
@@ -44,8 +66,14 @@ def apply_augmentation(img, brightness=0.1, contrast=0.1, saturation=0.1, noise=
     gray = img.mean(dim=0, keepdim=True)
     img = gray + (img - gray) * (1.0 + random.uniform(-saturation, saturation))
 
-    # Gaussian noise
-    img = img + torch.randn_like(img) * noise
+    # Hue jitter (shift RGB channels)
+    if random.random() < 0.5:
+        hue_factor = random.uniform(-hue, hue)
+        # Simple hue shift by rotating RGB channels slightly
+        r, g, b = img[0], img[1], img[2]
+        img[0] = r + hue_factor * (g - b)
+        img[1] = g + hue_factor * (b - r)
+        img[2] = b + hue_factor * (r - g)
 
     return img.clamp(0, 1)
 
@@ -88,15 +116,16 @@ class Dataset(TorchDataset):
         if rotation > 0:
             img = img.rot90(rotation, [1, 2])
 
-        # Resize first to reduce computation
-        img = resize_to_fit(img, self.img_size)
-
-        # Apply augmentation on smaller image
         if self.augment:
-            img = apply_augmentation(img, brightness=0.1, contrast=0.1, saturation=0.1, noise=0.02)
+            # Random crop and resize directly to 224x224 (no padding needed)
+            img = random_resized_crop(img, self.img_size, scale=(0.85, 1.0))
+            # Apply color augmentation
+            img = apply_augmentation(img, brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05)
+        else:
+            # Validation: deterministic resize with padding
+            img = resize_to_fit(img, self.img_size)
+            img = pad_to_square(img, self.img_size)
 
-        # Pad to exact square
-        img = pad_to_square(img, self.img_size)
         img = self.normalize(img)
         return img, rotation
 
