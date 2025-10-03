@@ -17,8 +17,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train rotation classifier')
 
     parser.add_argument('--epochs', type=int, default=20, help='Number of epochs')
-    parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate')
-    parser.add_argument('--smoothing', type=float, default=0.1, help='Label smoothing factor')
+    parser.add_argument('--learning-rate', type=float, default=3e-4, help='Learning rate')
+    parser.add_argument('--label-smoothing', type=float, default=0.15, help='Label smoothing factor')
 
     parser.add_argument('--batch-size', type=int, default=512, help='Batch size')
     parser.add_argument('--patience', type=int, default=10, help='Early stopping patience')
@@ -156,7 +156,7 @@ def main():
 
     # Training setup
     criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
