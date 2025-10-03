@@ -1,6 +1,7 @@
 import argparse
 import random
 from pathlib import Path
+from datetime import datetime
 
 import torch
 import torch.nn as nn
@@ -200,6 +201,8 @@ def main():
 
     best_val_loss = float('inf')
     best_model_state = None
+    best_train_acc = 0.0
+    best_val_acc = 0.0
     patience_counter = 0
 
     # Training loop
@@ -213,6 +216,8 @@ def main():
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_model_state = model.state_dict()
+            best_train_acc = train_acc
+            best_val_acc = val_acc
             patience_counter = 0
             print(f"Epoch {epoch+1}: Train Acc {train_acc:.2f}%, Val Acc {val_acc:.2f}%, Val Loss {val_loss:.4f}, LR {lr:.2e} *** BEST ***")
         else:
@@ -224,11 +229,16 @@ def main():
 
         scheduler.step()
 
-    # Save best model
+    # Save best model with descriptive filename
     if best_model_state is not None:
         model.load_state_dict(best_model_state)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"rotation_model_{timestamp}_train{best_train_acc:.1f}_val{best_val_acc:.1f}.pth"
+        torch.save(best_model_state, filename)
+        print(f"Saved best model: {filename}")
+
+        # Also save as default name for backwards compatibility
         torch.save(best_model_state, "rotation_model.pth")
-        print(f"Saved best model (val loss: {best_val_loss:.4f}): rotation_model.pth")
     else:
         print("Warning: No model was saved (training may have failed immediately)")
 
