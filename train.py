@@ -73,14 +73,14 @@ class Dataset(TorchDataset):
         # Resize to fit (maintains aspect ratio)
         img = resize_to_fit(img, self.img_size)
 
-        if self.augment:
-            r = random.random()
-            if r < 0.33: # Horizontal flip
-                img = torch.flip(img, dims=[2])
-                rotation = [0, 3, 2, 1][rotation]
-            elif r < 0.66: # Vertical flip
-                img = torch.flip(img, dims=[1])
-                rotation = [2, 1, 0, 3][rotation]
+        # if self.augment:
+            # r = random.random()
+            # if r < 0.33: # Horizontal flip
+            #     img = torch.flip(img, dims=[2])
+            #     rotation = [0, 3, 2, 1][rotation]
+            # elif r < 0.66: # Vertical flip
+            #     img = torch.flip(img, dims=[1])
+            #     rotation = [2, 1, 0, 3][rotation]
 
         # Pad to square
         img = pad_to_square(img, self.img_size)
