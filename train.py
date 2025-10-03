@@ -96,7 +96,7 @@ def train_epoch(model, loader, criterion, optimizer, device):
     total = 0
 
     for imgs, labels in loader:
-        imgs, labels = imgs.to(device, non_blocking=True), labels.to(device, non_blocking=True)
+        imgs, labels = imgs.to(device), labels.to(device)
 
         optimizer.zero_grad()
         outputs = model(imgs)
@@ -121,7 +121,7 @@ def validate(model, loader, criterion, device):
 
     with torch.no_grad():
         for imgs, labels in loader:
-            imgs, labels = imgs.to(device, non_blocking=True), labels.to(device, non_blocking=True)
+            imgs, labels = imgs.to(device), labels.to(device)
             outputs = model(imgs)
             loss = criterion(outputs, labels)
 
@@ -141,8 +141,8 @@ def main():
     # Data
     train_dataset = Dataset("data/train2017", img_size=img_size, augment=True, fixed_rotation=False)
     val_dataset = Dataset("data/val2017", img_size=img_size, augment=False, fixed_rotation=True)
-    train_loader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=args.workers, pin_memory=True, persistent_workers=True, prefetch_factor=4)
-    val_loader = DataLoader(val_dataset, args.batch_size, num_workers=args.workers, pin_memory=True, persistent_workers=True, prefetch_factor=2)
+    train_loader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=args.workers, pin_memory=True)
+    val_loader = DataLoader(val_dataset, args.batch_size, num_workers=args.workers, pin_memory=True)
 
     print(f"Training on {len(train_dataset)} images, validating on {len(val_dataset)} images")
 
