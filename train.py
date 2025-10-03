@@ -155,7 +155,7 @@ def main():
     model = model.to(device)
 
     # Training setup
-    criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
+    criterion = nn.CrossEntropyLoss(label_smoothing=args.label-smoothing)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
