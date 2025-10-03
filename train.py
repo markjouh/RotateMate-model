@@ -136,7 +136,7 @@ def validate(model, loader, criterion, device):
 def main():
     args = parse_args()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    img_size = 256
+    img_size = 224
 
     # Data
     train_dataset = Dataset("data/train2017", img_size=img_size, augment=True, fixed_rotation=False)
@@ -147,7 +147,7 @@ def main():
     print(f"Training on {len(train_dataset)} images, validating on {len(val_dataset)} images")
 
     # Model
-    model = timm.create_model("mobilenetv4_conv_medium.e500_r256_in1k", pretrained=True, num_classes=4)
+    model = timm.create_model("mobilenetv4_conv_small.e2400_r224_in1k", pretrained=True, num_classes=4)
     model = model.to(device)
 
     # Training setup
