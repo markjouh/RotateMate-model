@@ -99,6 +99,22 @@ class Dataset(TorchDataset):
         img = resize_to_fit(img, self.img_size)
 
         if self.augment:
+            # Geometric augmentation: randomly apply hflip, vflip, or transpose
+            aug_choice = random.random()
+            if aug_choice < 0.25:
+                # Horizontal flip
+                img = torch.flip(img, dims=[2])
+                rotation = [0, 3, 2, 1][rotation]
+            elif aug_choice < 0.5:
+                # Vertical flip
+                img = torch.flip(img, dims=[1])
+                rotation = [2, 1, 0, 3][rotation]
+            elif aug_choice < 0.75:
+                # Transpose (swap H and W)
+                img = img.transpose(1, 2)
+                rotation = [1, 2, 3, 0][rotation]
+            # else: no geometric augmentation (25% of the time)
+
             # Color augmentation on resized image
             img = apply_color_jitter(img, brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05)
 
