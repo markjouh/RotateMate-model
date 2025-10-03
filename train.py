@@ -32,28 +32,6 @@ def resize_to_fit(img, size):
     return img
 
 
-def random_resized_crop(img, size, scale=(0.85, 1.0)):
-    """Randomly crop and resize to size x size."""
-    c, h, w = img.shape
-
-    # Random scale factor
-    scale_factor = random.uniform(scale[0], scale[1])
-    target_h = int(h * scale_factor)
-    target_w = int(w * scale_factor)
-
-    # Random crop position
-    top = random.randint(0, h - target_h) if h > target_h else 0
-    left = random.randint(0, w - target_w) if w > target_w else 0
-
-    # Crop
-    img = img[:, top:top+target_h, left:left+target_w]
-
-    # Resize to target size
-    img = F.interpolate(img.unsqueeze(0), size=(size, size), mode='bilinear', align_corners=False).squeeze(0)
-
-    return img
-
-
 def apply_augmentation(img, brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05):
     """Fast augmentation using in-place operations where possible."""
     # Brightness
@@ -117,16 +95,15 @@ class Dataset(TorchDataset):
         if rotation > 0:
             img = img.rot90(rotation, [1, 2])
 
-        if self.augment:
-            # Random crop and resize directly to 224x224 (no padding needed)
-            img = random_resized_crop(img, self.img_size, scale=(0.85, 1.0))
-            # Apply color augmentation
-            img = apply_augmentation(img, brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05)
-        else:
-            # Validation: deterministic resize with padding
-            img = resize_to_fit(img, self.img_size)
-            img = pad_to_square(img, self.img_size)
+        # Resize to fit (maintains aspect ratio)
+        img = resize_to_fit(img, self.img_size)
 
+        if self.augment:
+            # Color augmentation on resized image
+            img = apply_color_jitter(img, brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05)
+
+        # Pad to square
+        img = pad_to_square(img, self.img_size)
         img = self.normalize(img)
         return img, rotation
 
