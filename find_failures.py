@@ -95,8 +95,8 @@ def main():
     print(f"Loaded model from {args.checkpoint}")
 
     # Datasets
-    train_dataset = Dataset("data/train2017", img_size=img_size, augment=True, fixed_rotation=False)
-    val_dataset = Dataset("data/val2017", img_size=img_size, augment=False, fixed_rotation=True)
+    train_dataset = Dataset("data/train2017", img_size=img_size, augment=True)
+    val_dataset = Dataset("data/val2017", img_size=img_size, augment=False)
 
     train_loader = DataLoader(train_dataset, args.batch_size, num_workers=args.workers, pin_memory=True)
     val_loader = DataLoader(val_dataset, args.batch_size, num_workers=args.workers, pin_memory=True)
