@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train rotation classifier')
-    parser.add_argument('--epochs', type=int, default=60, help='Number of epochs')
+    parser.add_argument('--epochs', type=int, default=20, help='Number of epochs')
     parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate')
     parser.add_argument('--patience', type=int, default=10, help='Early stopping patience')
     parser.add_argument('--workers', type=int, default=22, help='Number of data loader workers')
