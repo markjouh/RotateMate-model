@@ -32,7 +32,7 @@ def resize_to_fit(img, size):
     return img
 
 
-def apply_augmentation(img, brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05):
+def apply_color_jitter(img, brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05):
     """Fast augmentation using in-place operations where possible."""
     # Brightness
     img = img * (1.0 + random.uniform(-brightness, brightness))
