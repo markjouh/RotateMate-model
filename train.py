@@ -80,10 +80,6 @@ class Dataset(TorchDataset):
             if random.random() < 0.25:      # VF
                 img = torch.flip(img, dims=[1])
                 rotation = [2, 1, 0, 3][rotation]
-            if random.random() < 0.25:      # TR (swap H/W)
-                img = img.transpose(1, 2)
-                rotation = [1, 2, 3, 0][rotation]
-
 
         # Pad to square
         img = pad_to_square(img, self.img_size)
