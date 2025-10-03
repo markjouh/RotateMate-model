@@ -136,7 +136,7 @@ def validate(model, loader, criterion, device):
 def main():
     args = parse_args()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    img_size = 224
+    img_size = 256
 
     # Data
     train_dataset = Dataset("data/train2017", img_size=img_size, augment=True, fixed_rotation=False)
