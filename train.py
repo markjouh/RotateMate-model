@@ -19,7 +19,7 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate')
     parser.add_argument('--patience', type=int, default=10, help='Early stopping patience')
     parser.add_argument('--workers', type=int, default=22, help='Number of data loader workers')
-    parser.add_argument('--batch-size', type=int, default=256, help='Batch size')
+    parser.add_argument('--batch-size', type=int, default=512, help='Batch size')
     return parser.parse_args()
 
 
