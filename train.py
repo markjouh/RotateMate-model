@@ -15,11 +15,15 @@ from tqdm import tqdm
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train rotation classifier')
+
     parser.add_argument('--epochs', type=int, default=20, help='Number of epochs')
     parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate')
+    parser.add_argument('--smoothing', type=float, default=0.1, help='Label smoothing factor')
+
+    parser.add_argument('--batch-size', type=int, default=512, help='Batch size')
     parser.add_argument('--patience', type=int, default=10, help='Early stopping patience')
     parser.add_argument('--workers', type=int, default=22, help='Number of data loader workers')
-    parser.add_argument('--batch-size', type=int, default=512, help='Batch size')
+    
     return parser.parse_args()
 
 
@@ -151,7 +155,7 @@ def main():
     model = model.to(device)
 
     # Training setup
-    criterion = nn.CrossEntropyLoss(label_smoothing=0.05)
+    criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
