@@ -32,31 +32,6 @@ def resize_to_fit(img, size):
     return img
 
 
-def apply_color_jitter(img, brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05):
-    """Fast augmentation using in-place operations where possible."""
-    # Brightness
-    img = img * (1.0 + random.uniform(-brightness, brightness))
-
-    # Contrast
-    mean = img.mean(dim=[1, 2], keepdim=True)
-    img = (img - mean) * (1.0 + random.uniform(-contrast, contrast)) + mean
-
-    # Saturation
-    gray = img.mean(dim=0, keepdim=True)
-    img = gray + (img - gray) * (1.0 + random.uniform(-saturation, saturation))
-
-    # Hue jitter (shift RGB channels)
-    if random.random() < 0.5:
-        hue_factor = random.uniform(-hue, hue)
-        # Simple hue shift by rotating RGB channels slightly
-        r, g, b = img[0], img[1], img[2]
-        img[0] = r + hue_factor * (g - b)
-        img[1] = g + hue_factor * (b - r)
-        img[2] = b + hue_factor * (r - g)
-
-    return img.clamp(0, 1)
-
-
 def pad_to_square(img, size):
     """Pad image to exactly size x size with black borders."""
     c, h, w = img.shape
@@ -114,9 +89,6 @@ class Dataset(TorchDataset):
                 img = img.transpose(1, 2)
                 rotation = [1, 2, 3, 0][rotation]
             # else: no geometric augmentation (25% of the time)
-
-            # Color augmentation on resized image
-            img = apply_color_jitter(img, brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05)
 
         # Pad to square
         img = pad_to_square(img, self.img_size)
@@ -187,7 +159,7 @@ def main():
     model = model.to(device)
 
     # Training setup
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.03)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
