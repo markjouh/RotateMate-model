@@ -190,7 +190,7 @@ def main():
     if best_model_state is not None:
         model.load_state_dict(best_model_state)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"rotation_model_{timestamp}_train{best_train_acc:.1f}_val{best_val_acc:.1f}.pth"
+        filename = f"rotation_model_{timestamp}_train{best_train_acc:.1f}_val{best_val_acc:.1f}_loss{best_val_loss:.4f}.pth"
         torch.save(best_model_state, filename)
         print(f"Saved best model: {filename}")
 
