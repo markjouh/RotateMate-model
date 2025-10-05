@@ -1,0 +1,30 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Model outputs
+*.mlpackage
+*.mlmodel
+
+# Training artifacts
+checkpoints/
+logs/
+*.pth
+*.pt
+
+# Dataset
+images/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
