@@ -13,7 +13,6 @@ __pycache__/
 # Training artifacts
 checkpoints/
 logs/
-*.pth
 *.pt
 
 # Dataset
